@@ -1,0 +1,15 @@
+{
+  "rows": 1000,
+  "fraud_rate": 0.078,
+  "columns": [
+    "amount",
+    "customer_age",
+    "account_age_days",
+    "distance_from_home_km",
+    "hour",
+    "device_trust_score",
+    "previous_chargebacks",
+    "merchant_category",
+    "is_fraud"
+  ]
+}

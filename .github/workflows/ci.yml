@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m compileall src
+      - run: pytest -q
+
+  retrain-and-validate:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m src.training.prepare --input data/raw/transactions.csv --output data/processed/transactions.csv
+      - run: python -m src.training.train --input data/processed/transactions.csv --output models/candidate.joblib --run-name github-${{ github.sha }}
+      - run: python -m src.monitoring.validate --candidate models/candidate.joblib --production models/model.joblib --data data/processed/transactions.csv --decision reports/validation.json
+      - run: test "$(python -c 'import json; print(json.load(open("reports/validation.json"))["accepted"])')" = "True"
+      - run: cp models/candidate.joblib models/model.joblib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: validated-model-${{ github.sha }}
+          path: |
+            models/model.joblib
+            reports/validation.json
