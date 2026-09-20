@@ -1,0 +1,143 @@
+{
+  "dataset_name": "02_credit_card_style",
+  "source_style": "Credit Card Fraud Detection / ULB",
+  "synthetic": true,
+  "seed": 20260917,
+  "rows": 2000,
+  "features": 17,
+  "target_column": "is_fraud",
+  "fraud_rows": 344,
+  "fraud_rate": 0.172,
+  "train_rows": 1600,
+  "test_rows": 400,
+  "split_ratio": "80:20 stratified by target",
+  "description": "Synthetic anonymized card transactions with PCA-like components and severe class-imbalance behavior.",
+  "schema": [
+    {
+      "column": "transaction_id",
+      "dtype": "str",
+      "description": "Transaction Id",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "time_seconds",
+      "dtype": "float64",
+      "description": "Time Seconds",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "amount",
+      "dtype": "float64",
+      "description": "Amount",
+      "missing_values": 0,
+      "unique_values": 1823
+    },
+    {
+      "column": "v1",
+      "dtype": "float64",
+      "description": "V1",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "v2",
+      "dtype": "float64",
+      "description": "V2",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "v3",
+      "dtype": "float64",
+      "description": "V3",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "v4",
+      "dtype": "float64",
+      "description": "V4",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "v5",
+      "dtype": "float64",
+      "description": "V5",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "v6",
+      "dtype": "float64",
+      "description": "V6",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "v7",
+      "dtype": "float64",
+      "description": "V7",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "v8",
+      "dtype": "float64",
+      "description": "V8",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "v9",
+      "dtype": "float64",
+      "description": "V9",
+      "missing_values": 0,
+      "unique_values": 1997
+    },
+    {
+      "column": "v10",
+      "dtype": "float64",
+      "description": "V10",
+      "missing_values": 0,
+      "unique_values": 1999
+    },
+    {
+      "column": "merchant_risk_score",
+      "dtype": "float64",
+      "description": "Merchant Risk Score",
+      "missing_values": 0,
+      "unique_values": 1566
+    },
+    {
+      "column": "device_age_days",
+      "dtype": "int64",
+      "description": "Device Age Days",
+      "missing_values": 0,
+      "unique_values": 1383
+    },
+    {
+      "column": "transactions_24h",
+      "dtype": "int64",
+      "description": "Transactions 24H",
+      "missing_values": 0,
+      "unique_values": 11
+    },
+    {
+      "column": "country_distance_km",
+      "dtype": "float64",
+      "description": "Country Distance Km",
+      "missing_values": 0,
+      "unique_values": 1909
+    },
+    {
+      "column": "is_fraud",
+      "dtype": "int64",
+      "description": "Is Fraud",
+      "missing_values": 0,
+      "unique_values": 2
+    }
+  ]
+}

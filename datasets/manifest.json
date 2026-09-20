@@ -1,0 +1,390 @@
+{
+  "created_utc": "2026-09-17T00:00:00Z",
+  "synthetic": true,
+  "seed": 20260917,
+  "rows_per_dataset": 2000,
+  "split": "80:20 stratified by is_fraud",
+  "datasets": [
+    {
+      "dataset_name": "01_paysim_style",
+      "source_style": "PaySim",
+      "synthetic": true,
+      "seed": 20260917,
+      "rows": 2000,
+      "features": 15,
+      "target_column": "is_fraud",
+      "fraud_rows": 240,
+      "fraud_rate": 0.12,
+      "train_rows": 1600,
+      "test_rows": 400,
+      "split_ratio": "80:20 stratified by target",
+      "description": "Synthetic mobile-money transactions designed for Kafka replay and streaming fraud detection experiments.",
+      "schema": [
+        {
+          "column": "transaction_id",
+          "dtype": "str",
+          "description": "Transaction Id",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "step_hour",
+          "dtype": "int64",
+          "description": "Step Hour",
+          "missing_values": 0,
+          "unique_values": 687
+        },
+        {
+          "column": "transaction_type",
+          "dtype": "str",
+          "description": "Transaction Type",
+          "missing_values": 0,
+          "unique_values": 5
+        },
+        {
+          "column": "amount",
+          "dtype": "float64",
+          "description": "Amount",
+          "missing_values": 0,
+          "unique_values": 1961
+        },
+        {
+          "column": "name_orig",
+          "dtype": "str",
+          "description": "Name Orig",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "old_balance_org",
+          "dtype": "float64",
+          "description": "Old Balance Org",
+          "missing_values": 0,
+          "unique_values": 1991
+        },
+        {
+          "column": "new_balance_org",
+          "dtype": "float64",
+          "description": "New Balance Org",
+          "missing_values": 0,
+          "unique_values": 1852
+        },
+        {
+          "column": "name_dest",
+          "dtype": "str",
+          "description": "Name Dest",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "old_balance_dest",
+          "dtype": "float64",
+          "description": "Old Balance Dest",
+          "missing_values": 0,
+          "unique_values": 1980
+        },
+        {
+          "column": "new_balance_dest",
+          "dtype": "float64",
+          "description": "New Balance Dest",
+          "missing_values": 0,
+          "unique_values": 1992
+        },
+        {
+          "column": "origin_account_age_days",
+          "dtype": "int64",
+          "description": "Origin Account Age Days",
+          "missing_values": 0,
+          "unique_values": 1284
+        },
+        {
+          "column": "recipient_is_merchant",
+          "dtype": "int64",
+          "description": "Recipient Is Merchant",
+          "missing_values": 0,
+          "unique_values": 2
+        },
+        {
+          "column": "velocity_1h",
+          "dtype": "int64",
+          "description": "Velocity 1H",
+          "missing_values": 0,
+          "unique_values": 8
+        },
+        {
+          "column": "velocity_24h",
+          "dtype": "int64",
+          "description": "Velocity 24H",
+          "missing_values": 0,
+          "unique_values": 17
+        },
+        {
+          "column": "amount_to_balance_ratio",
+          "dtype": "float64",
+          "description": "Amount To Balance Ratio",
+          "missing_values": 0,
+          "unique_values": 1687
+        },
+        {
+          "column": "is_fraud",
+          "dtype": "int64",
+          "description": "Is Fraud",
+          "missing_values": 0,
+          "unique_values": 2
+        }
+      ]
+    },
+    {
+      "dataset_name": "02_credit_card_style",
+      "source_style": "Credit Card Fraud Detection / ULB",
+      "synthetic": true,
+      "seed": 20260917,
+      "rows": 2000,
+      "features": 17,
+      "target_column": "is_fraud",
+      "fraud_rows": 344,
+      "fraud_rate": 0.172,
+      "train_rows": 1600,
+      "test_rows": 400,
+      "split_ratio": "80:20 stratified by target",
+      "description": "Synthetic anonymized card transactions with PCA-like components and severe class-imbalance behavior.",
+      "schema": [
+        {
+          "column": "transaction_id",
+          "dtype": "str",
+          "description": "Transaction Id",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "time_seconds",
+          "dtype": "float64",
+          "description": "Time Seconds",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "amount",
+          "dtype": "float64",
+          "description": "Amount",
+          "missing_values": 0,
+          "unique_values": 1823
+        },
+        {
+          "column": "v1",
+          "dtype": "float64",
+          "description": "V1",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "v2",
+          "dtype": "float64",
+          "description": "V2",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "v3",
+          "dtype": "float64",
+          "description": "V3",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "v4",
+          "dtype": "float64",
+          "description": "V4",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "v5",
+          "dtype": "float64",
+          "description": "V5",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "v6",
+          "dtype": "float64",
+          "description": "V6",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "v7",
+          "dtype": "float64",
+          "description": "V7",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "v8",
+          "dtype": "float64",
+          "description": "V8",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "v9",
+          "dtype": "float64",
+          "description": "V9",
+          "missing_values": 0,
+          "unique_values": 1997
+        },
+        {
+          "column": "v10",
+          "dtype": "float64",
+          "description": "V10",
+          "missing_values": 0,
+          "unique_values": 1999
+        },
+        {
+          "column": "merchant_risk_score",
+          "dtype": "float64",
+          "description": "Merchant Risk Score",
+          "missing_values": 0,
+          "unique_values": 1566
+        },
+        {
+          "column": "device_age_days",
+          "dtype": "int64",
+          "description": "Device Age Days",
+          "missing_values": 0,
+          "unique_values": 1383
+        },
+        {
+          "column": "transactions_24h",
+          "dtype": "int64",
+          "description": "Transactions 24H",
+          "missing_values": 0,
+          "unique_values": 11
+        },
+        {
+          "column": "country_distance_km",
+          "dtype": "float64",
+          "description": "Country Distance Km",
+          "missing_values": 0,
+          "unique_values": 1909
+        },
+        {
+          "column": "is_fraud",
+          "dtype": "int64",
+          "description": "Is Fraud",
+          "missing_values": 0,
+          "unique_values": 2
+        }
+      ]
+    },
+    {
+      "dataset_name": "03_ieee_cis_style",
+      "source_style": "IEEE-CIS Fraud Detection",
+      "synthetic": true,
+      "seed": 20260917,
+      "rows": 2000,
+      "features": 12,
+      "target_column": "is_fraud",
+      "fraud_rows": 70,
+      "fraud_rate": 0.035,
+      "train_rows": 1600,
+      "test_rows": 400,
+      "split_ratio": "80:20 stratified by target",
+      "description": "Synthetic card-not-present transactions with product, card, address, email, device, and IP-risk signals.",
+      "schema": [
+        {
+          "column": "transaction_id",
+          "dtype": "str",
+          "description": "Transaction Id",
+          "missing_values": 0,
+          "unique_values": 2000
+        },
+        {
+          "column": "transaction_amount",
+          "dtype": "float64",
+          "description": "Transaction Amount",
+          "missing_values": 0,
+          "unique_values": 1917
+        },
+        {
+          "column": "product_code",
+          "dtype": "str",
+          "description": "Product Code",
+          "missing_values": 0,
+          "unique_values": 4
+        },
+        {
+          "column": "card_type",
+          "dtype": "str",
+          "description": "Card Type",
+          "missing_values": 0,
+          "unique_values": 3
+        },
+        {
+          "column": "card_age_days",
+          "dtype": "int64",
+          "description": "Card Age Days",
+          "missing_values": 0,
+          "unique_values": 1541
+        },
+        {
+          "column": "device_age_days",
+          "dtype": "int64",
+          "description": "Device Age Days",
+          "missing_values": 0,
+          "unique_values": 1194
+        },
+        {
+          "column": "email_domain_risk",
+          "dtype": "float64",
+          "description": "Email Domain Risk",
+          "missing_values": 0,
+          "unique_values": 1471
+        },
+        {
+          "column": "ip_risk",
+          "dtype": "float64",
+          "description": "Ip Risk",
+          "missing_values": 0,
+          "unique_values": 1456
+        },
+        {
+          "column": "address_match",
+          "dtype": "int64",
+          "description": "Address Match",
+          "missing_values": 0,
+          "unique_values": 2
+        },
+        {
+          "column": "billing_shipping_distance_km",
+          "dtype": "float64",
+          "description": "Billing Shipping Distance Km",
+          "missing_values": 0,
+          "unique_values": 1847
+        },
+        {
+          "column": "num_cards_on_device",
+          "dtype": "int64",
+          "description": "Num Cards On Device",
+          "missing_values": 0,
+          "unique_values": 8
+        },
+        {
+          "column": "transaction_hour",
+          "dtype": "int64",
+          "description": "Transaction Hour",
+          "missing_values": 0,
+          "unique_values": 24
+        },
+        {
+          "column": "is_fraud",
+          "dtype": "int64",
+          "description": "Is Fraud",
+          "missing_values": 0,
+          "unique_values": 2
+        }
+      ]
+    }
+  ],
+  "important_note": "These are generated training fixtures, not real financial records and not downloaded copies of Kaggle datasets."
+}

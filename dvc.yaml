@@ -1,0 +1,15 @@
+stages:
+  train:
+    cmd: python mlops/train.py --dataset ${dataset}
+    deps:
+      - mlops/train.py
+      - datasets/${dataset}/train_80.xlsx
+      - datasets/${dataset}/test_20.xlsx
+      - params.yaml
+    params:
+      - dataset
+      - random_state
+      - model
+    outs:
+      - outputs/${dataset}/model.joblib
+      - outputs/${dataset}/metrics.json

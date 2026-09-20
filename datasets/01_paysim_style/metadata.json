@@ -1,0 +1,129 @@
+{
+  "dataset_name": "01_paysim_style",
+  "source_style": "PaySim",
+  "synthetic": true,
+  "seed": 20260917,
+  "rows": 2000,
+  "features": 15,
+  "target_column": "is_fraud",
+  "fraud_rows": 240,
+  "fraud_rate": 0.12,
+  "train_rows": 1600,
+  "test_rows": 400,
+  "split_ratio": "80:20 stratified by target",
+  "description": "Synthetic mobile-money transactions designed for Kafka replay and streaming fraud detection experiments.",
+  "schema": [
+    {
+      "column": "transaction_id",
+      "dtype": "str",
+      "description": "Transaction Id",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "step_hour",
+      "dtype": "int64",
+      "description": "Step Hour",
+      "missing_values": 0,
+      "unique_values": 687
+    },
+    {
+      "column": "transaction_type",
+      "dtype": "str",
+      "description": "Transaction Type",
+      "missing_values": 0,
+      "unique_values": 5
+    },
+    {
+      "column": "amount",
+      "dtype": "float64",
+      "description": "Amount",
+      "missing_values": 0,
+      "unique_values": 1961
+    },
+    {
+      "column": "name_orig",
+      "dtype": "str",
+      "description": "Name Orig",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "old_balance_org",
+      "dtype": "float64",
+      "description": "Old Balance Org",
+      "missing_values": 0,
+      "unique_values": 1991
+    },
+    {
+      "column": "new_balance_org",
+      "dtype": "float64",
+      "description": "New Balance Org",
+      "missing_values": 0,
+      "unique_values": 1852
+    },
+    {
+      "column": "name_dest",
+      "dtype": "str",
+      "description": "Name Dest",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "old_balance_dest",
+      "dtype": "float64",
+      "description": "Old Balance Dest",
+      "missing_values": 0,
+      "unique_values": 1980
+    },
+    {
+      "column": "new_balance_dest",
+      "dtype": "float64",
+      "description": "New Balance Dest",
+      "missing_values": 0,
+      "unique_values": 1992
+    },
+    {
+      "column": "origin_account_age_days",
+      "dtype": "int64",
+      "description": "Origin Account Age Days",
+      "missing_values": 0,
+      "unique_values": 1284
+    },
+    {
+      "column": "recipient_is_merchant",
+      "dtype": "int64",
+      "description": "Recipient Is Merchant",
+      "missing_values": 0,
+      "unique_values": 2
+    },
+    {
+      "column": "velocity_1h",
+      "dtype": "int64",
+      "description": "Velocity 1H",
+      "missing_values": 0,
+      "unique_values": 8
+    },
+    {
+      "column": "velocity_24h",
+      "dtype": "int64",
+      "description": "Velocity 24H",
+      "missing_values": 0,
+      "unique_values": 17
+    },
+    {
+      "column": "amount_to_balance_ratio",
+      "dtype": "float64",
+      "description": "Amount To Balance Ratio",
+      "missing_values": 0,
+      "unique_values": 1687
+    },
+    {
+      "column": "is_fraud",
+      "dtype": "int64",
+      "description": "Is Fraud",
+      "missing_values": 0,
+      "unique_values": 2
+    }
+  ]
+}

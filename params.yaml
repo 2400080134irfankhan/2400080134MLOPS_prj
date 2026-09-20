@@ -1,0 +1,8 @@
+dataset: 01_paysim_style
+random_state: 20260917
+test_size: 0.2
+model:
+  algorithm: random_forest
+  n_estimators: 240
+  max_depth: 12
+  class_weight: balanced

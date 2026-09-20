@@ -1,0 +1,108 @@
+{
+  "dataset_name": "03_ieee_cis_style",
+  "source_style": "IEEE-CIS Fraud Detection",
+  "synthetic": true,
+  "seed": 20260917,
+  "rows": 2000,
+  "features": 12,
+  "target_column": "is_fraud",
+  "fraud_rows": 70,
+  "fraud_rate": 0.035,
+  "train_rows": 1600,
+  "test_rows": 400,
+  "split_ratio": "80:20 stratified by target",
+  "description": "Synthetic card-not-present transactions with product, card, address, email, device, and IP-risk signals.",
+  "schema": [
+    {
+      "column": "transaction_id",
+      "dtype": "str",
+      "description": "Transaction Id",
+      "missing_values": 0,
+      "unique_values": 2000
+    },
+    {
+      "column": "transaction_amount",
+      "dtype": "float64",
+      "description": "Transaction Amount",
+      "missing_values": 0,
+      "unique_values": 1917
+    },
+    {
+      "column": "product_code",
+      "dtype": "str",
+      "description": "Product Code",
+      "missing_values": 0,
+      "unique_values": 4
+    },
+    {
+      "column": "card_type",
+      "dtype": "str",
+      "description": "Card Type",
+      "missing_values": 0,
+      "unique_values": 3
+    },
+    {
+      "column": "card_age_days",
+      "dtype": "int64",
+      "description": "Card Age Days",
+      "missing_values": 0,
+      "unique_values": 1541
+    },
+    {
+      "column": "device_age_days",
+      "dtype": "int64",
+      "description": "Device Age Days",
+      "missing_values": 0,
+      "unique_values": 1194
+    },
+    {
+      "column": "email_domain_risk",
+      "dtype": "float64",
+      "description": "Email Domain Risk",
+      "missing_values": 0,
+      "unique_values": 1471
+    },
+    {
+      "column": "ip_risk",
+      "dtype": "float64",
+      "description": "Ip Risk",
+      "missing_values": 0,
+      "unique_values": 1456
+    },
+    {
+      "column": "address_match",
+      "dtype": "int64",
+      "description": "Address Match",
+      "missing_values": 0,
+      "unique_values": 2
+    },
+    {
+      "column": "billing_shipping_distance_km",
+      "dtype": "float64",
+      "description": "Billing Shipping Distance Km",
+      "missing_values": 0,
+      "unique_values": 1847
+    },
+    {
+      "column": "num_cards_on_device",
+      "dtype": "int64",
+      "description": "Num Cards On Device",
+      "missing_values": 0,
+      "unique_values": 8
+    },
+    {
+      "column": "transaction_hour",
+      "dtype": "int64",
+      "description": "Transaction Hour",
+      "missing_values": 0,
+      "unique_values": 24
+    },
+    {
+      "column": "is_fraud",
+      "dtype": "int64",
+      "description": "Is Fraud",
+      "missing_values": 0,
+      "unique_values": 2
+    }
+  ]
+}
