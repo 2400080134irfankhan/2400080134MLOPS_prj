@@ -1,0 +1,25 @@
+{
+  "title": "Fraud Detection Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Prediction Requests / Second",
+      "targets": [{"expr": "rate(fraud_prediction_requests_total[5m])", "refId": "A"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Fraud Alerts / Second",
+      "targets": [{"expr": "rate(fraud_predictions_total[5m])", "refId": "A"}],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "P95 API Latency",
+      "targets": [{"expr": "histogram_quantile(0.95, rate(fraud_prediction_latency_seconds_bucket[5m]))", "refId": "A"}],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+    }
+  ]
+}

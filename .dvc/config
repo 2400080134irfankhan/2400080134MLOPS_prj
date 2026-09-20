@@ -1,0 +1,6 @@
+[core]
+    remote = dagshub
+['remote "origin"']
+    url = https://dagshub.com/Rohith0088/fraud
+['remote "dagshub"']
+    url = https://dagshub.com/Rohith0088/fraud
