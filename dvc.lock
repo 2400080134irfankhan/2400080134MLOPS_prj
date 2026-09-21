@@ -1,0 +1,39 @@
+schema: '2.0'
+stages:
+  train:
+    cmd: python mlops/train.py --dataset 01_paysim_style
+    deps:
+    - path: datasets/01_paysim_style/test_20.xlsx
+      hash: md5
+      md5: c476c7573936e56e7ea1f7ae4ccc8455
+      size: 45564
+    - path: datasets/01_paysim_style/train_80.xlsx
+      hash: md5
+      md5: 20c8d80c7088f0f51c152b1746b53267
+      size: 166384
+    - path: mlops/train.py
+      hash: md5
+      md5: 68dce683c12207c545eb195bd2c5d968
+      size: 5820
+    - path: params.yaml
+      hash: md5
+      md5: fb78aba614a7e4729863c2a740adfa59
+      size: 164
+    params:
+      params.yaml:
+        dataset: 01_paysim_style
+        model:
+          algorithm: random_forest
+          n_estimators: 240
+          max_depth: 12
+          class_weight: balanced
+        random_state: 20260917
+    outs:
+    - path: outputs/01_paysim_style/metrics.json
+      hash: md5
+      md5: feb7579a32664293369fa26d7927e592
+      size: 237
+    - path: outputs/01_paysim_style/model.joblib
+      hash: md5
+      md5: b30783a5480688ec4b24ba819a526b75
+      size: 1588747
