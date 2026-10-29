@@ -18,6 +18,7 @@ import { useLocation, useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { SectionHeader } from "@/components/DashboardLayout";
 import { TransactionTable } from "@/pages/Home";
+import { EvidenceList, RecommendationPanel, RiskScoreCard, VerdictBanner } from "@/components/AnalysisResult";
 
 const filters = [
   "ALL",
@@ -33,6 +34,15 @@ const datasetNames = [
   "03_ieee_cis_style",
 ] as const;
 type DatasetName = (typeof datasetNames)[number];
+const currencies = {
+  USD: { symbol: "$", label: "US Dollar", usdRate: 1 },
+  INR: { symbol: "₹", label: "Indian Rupee", usdRate: 0.012 },
+  EUR: { symbol: "€", label: "Euro", usdRate: 1.08 },
+  GBP: { symbol: "£", label: "British Pound", usdRate: 1.27 },
+  AED: { symbol: "د.إ", label: "UAE Dirham", usdRate: 0.272 },
+  JPY: { symbol: "¥", label: "Japanese Yen", usdRate: 0.0067 },
+} as const;
+type Currency = keyof typeof currencies;
 const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -44,8 +54,10 @@ export default function Transactions() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<(typeof filters)[number]>("ALL");
   const [page, setPage] = useState(1);
+  const [mode, setMode] = useState<"QUICK" | "ADVANCED">("QUICK");
   const [predictionInput, setPredictionInput] = useState({
     amount: 240,
+    currency: "USD" as Currency,
     paymentMethod: "Card",
     isNewDevice: false,
     isInternational: false,
@@ -62,6 +74,19 @@ export default function Transactions() {
   const { data: datasets } = trpc.datasets.list.useQuery();
   const prediction = trpc.transactions.predict.useMutation();
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / 12));
+  const selectedDataset = datasets?.find(dataset => dataset.name === predictionInput.datasetName);
+  const scoreTransaction = () =>
+    prediction.mutate({
+      ...predictionInput,
+      amount: Number(
+        (predictionInput.amount * currencies[predictionInput.currency].usdRate).toFixed(2)
+      ),
+    });
+  const demoCases = [
+    { label: "Low-risk example", values: { amount: 80, velocity1h: 1, failedAttempts: 0, isNewDevice: false, isInternational: false } },
+    { label: "Review example", values: { amount: 420, velocity1h: 6, failedAttempts: 1, isNewDevice: true, isInternational: false } },
+    { label: "High-risk example", values: { amount: 1200, velocity1h: 10, failedAttempts: 3, isNewDevice: true, isInternational: true } },
+  ];
   return (
     <div className="mx-auto max-w-[1440px]">
       <SectionHeader
@@ -82,10 +107,12 @@ export default function Transactions() {
               <h3 className="text-sm font-semibold text-slate-800">
                 Score a transaction
               </h3>
-              <p className="mt-1 text-[11px] text-slate-500">
-                Enter transaction signals to run the production model and
-                classify risk.
-              </p>
+              <p className="mt-1 max-w-xl text-[11px] text-slate-500">Evaluate a transaction for patterns associated with financial fraud. The available model evidence is an assessment, not a guarantee of fraud prevention.</p>
+              {selectedDataset && (
+                <p className="mt-2 text-[10px] font-medium text-blue-600">
+                  {selectedDataset.source} · {selectedDataset.trainRows.toLocaleString()} train / {selectedDataset.testRows.toLocaleString()} test rows · synthetic demo data
+                </p>
+              )}
             </div>
             <label className="flex items-center gap-2 text-[10px] font-semibold text-blue-700">
               Dataset model
@@ -107,14 +134,31 @@ export default function Transactions() {
               </select>
             </label>
           </div>
+          <div className="flex border-b border-slate-100 px-5 pt-3">
+            {(["QUICK", "ADVANCED"] as const).map(item => <button key={item} onClick={() => setMode(item)} className={`border-b-2 px-3 pb-3 text-[10px] font-semibold tracking-[0.12em] ${mode === item ? "border-blue-600 text-blue-700" : "border-transparent text-slate-400"}`}>{item === "QUICK" ? "QUICK CHECK" : "ADVANCED ANALYSIS"}</button>)}
+          </div>
         </div>
         <div className="grid gap-5 p-5 md:grid-cols-2 lg:grid-cols-3">
           <div>
             <label className="field-label">Transaction amount</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
-                $
-              </span>
+            <div className="flex gap-2">
+              <select
+                value={predictionInput.currency}
+                onChange={event =>
+                  setPredictionInput({
+                    ...predictionInput,
+                    currency: event.target.value as Currency,
+                  })
+                }
+                aria-label="Transaction currency"
+                className="field-input w-[92px] shrink-0 px-2 [color-scheme:dark]"
+              >
+                {Object.entries(currencies).map(([code, currency]) => (
+                  <option key={code} value={code} className="bg-slate-900 text-slate-100">
+                    {code} {currency.symbol}
+                  </option>
+                ))}
+              </select>
               <input
                 type="number"
                 min="1"
@@ -125,9 +169,13 @@ export default function Transactions() {
                     amount: Number(event.target.value),
                   })
                 }
-                className="field-input pl-7"
+                className="field-input"
               />
             </div>
+            {mode === "ADVANCED" && <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-[11px] text-slate-600 md:col-span-2 lg:col-span-3"><strong className="text-slate-800">Technical mapping:</strong> the selected dataset model receives derived dataset features from these user-friendly inputs. Fields such as device novelty and international activity are mapped only where the dataset schema supports a comparable feature; they are not claims about the source dataset.</div>}
+            <p className="mt-1 text-[10px] text-slate-500">
+              {currencies[predictionInput.currency].label}; scored in USD equivalent
+            </p>
           </div>
           <div>
             <label className="field-label">Payment method</label>
@@ -209,7 +257,7 @@ export default function Transactions() {
           </label>
           <div className="flex items-end lg:col-span-3">
             <button
-              onClick={() => prediction.mutate(predictionInput)}
+              onClick={scoreTransaction}
               disabled={prediction.isPending || predictionInput.amount <= 0}
               className="inline-flex h-9 items-center justify-center rounded-md bg-blue-600 px-5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -218,76 +266,9 @@ export default function Transactions() {
                 : "Predict fraud risk"}
             </button>
           </div>
+          <div className="lg:col-span-3"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Synthetic examples — still click Analyze</div><div className="flex flex-wrap gap-2">{demoCases.map(example => <button key={example.label} onClick={() => setPredictionInput(current => ({ ...current, ...example.values }))} className="rounded-md border border-blue-100 bg-blue-50 px-3 py-1.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100">{example.label}</button>)}</div></div>
           {prediction.data && (
-            <div
-              className="rounded-lg border p-4 lg:col-span-3"
-              style={{
-                borderColor:
-                  prediction.data.riskLevel === "HIGH"
-                    ? "#fecdd3"
-                    : prediction.data.riskLevel === "MEDIUM"
-                      ? "#fde68a"
-                      : "#bbf7d0",
-                background:
-                  prediction.data.riskLevel === "HIGH"
-                    ? "#fff1f2"
-                    : prediction.data.riskLevel === "MEDIUM"
-                      ? "#fffbeb"
-                      : "#f0fdf4",
-              }}
-            >
-              <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-                <div className="flex items-center gap-3">
-                  {prediction.data.prediction === "FRAUD" ? (
-                    <XCircle className="text-rose-600" size={25} />
-                  ) : (
-                    <CheckCircle2 className="text-emerald-600" size={25} />
-                  )}
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Prediction result
-                    </div>
-                    <div className="mt-1 text-lg font-semibold text-slate-900">
-                      {prediction.data.prediction}{" "}
-                      <span className="ml-2 text-sm font-medium text-slate-500">
-                        · {prediction.data.riskLevel} risk
-                      </span>
-                    </div>
-                    <div className="mt-1 font-mono text-[10px] text-slate-400">
-                      {prediction.data.dataset} · {prediction.data.modelArtifact}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-6">
-                  <div>
-                    <div className="text-[10px] uppercase tracking-[0.1em] text-slate-500">
-                      Fraud probability
-                    </div>
-                    <div className="mt-1 text-2xl font-semibold text-slate-900">
-                      {pct(prediction.data.probability)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] uppercase tracking-[0.1em] text-slate-500">
-                      Inference
-                    </div>
-                    <div className="mt-1 font-mono text-sm font-semibold text-slate-700">
-                      {prediction.data.processingTimeMs} ms
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {prediction.data.topRiskFactors.map(factor => (
-                  <span
-                    key={factor}
-                    className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-medium text-slate-600 shadow-sm"
-                  >
-                    {factor}
-                  </span>
-                ))}
-              </div>
-            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-950 p-4 lg:col-span-3"><VerdictBanner verdict={`${prediction.data.riskLevel} RISK`} title={prediction.data.riskLevel === "HIGH" ? "Review required" : prediction.data.riskLevel === "MEDIUM" ? "Review recommended" : "No strong fraud signals detected"} description={prediction.data.riskLevel === "HIGH" ? "This transaction shows several indicators associated with potentially fraudulent activity. Review it before approving." : prediction.data.riskLevel === "MEDIUM" ? "The available evidence is mixed. Verify the transaction before approving it." : "The model did not identify strong fraud indicators in the supplied transaction. This does not guarantee legitimacy."} tone={prediction.data.riskLevel === "HIGH" ? "danger" : prediction.data.riskLevel === "MEDIUM" ? "warning" : "positive"} /><div className="mt-4"><RiskScoreCard score={Math.round(prediction.data.probability * 100)} label="Model-derived score estimate; not calibrated probability" /></div><EvidenceList items={prediction.data.topRiskFactors.map(factor => ({ label: factor, detail: "This signal was returned by the configured dataset scoring path.", tone: prediction.data.riskLevel === "HIGH" ? "danger" as const : "warning" as const }))} title="Why was this transaction flagged?" /><RecommendationPanel>{prediction.data.riskLevel === "LOW" ? "Continue normal monitoring. Consider independent verification for unusually important payments." : "Hold or route this transaction for analyst review before approval."}</RecommendationPanel><div className="mt-4 text-[10px] text-slate-500">Model artifact: {prediction.data.modelArtifact} · Dataset: {prediction.data.dataset} · Analyzed: {new Date().toLocaleString()}</div></div>
           )}
         </div>
       </div>

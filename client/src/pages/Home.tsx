@@ -1,49 +1,232 @@
-import { ArrowDownRight, ArrowUpRight, Clock3, CreditCard, Gauge, MoreHorizontal, ShieldAlert, ShieldCheck, TrendingUp } from "lucide-react";
-import { useLocation } from "wouter";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { trpc } from "@/lib/trpc";
-import { SectionHeader, StatusDot } from "@/components/DashboardLayout";
+﻿import { ArrowRight, Circle, CreditCard, Gauge, ShieldCheck, Sparkles, TrendingUp, Zap } from "lucide-react";
 
-const palette = ["#2563eb", "#38bdf8", "#f59e0b", "#10b981"];
-const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
-const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+const quickActions = [
+  { title: "Find a fraud signal", subtitle: "Search transactions", icon: CreditCard },
+  { title: "Risk review", subtitle: "Assess flagged events", icon: ShieldCheck },
+  { title: "Model health", subtitle: "Track coverage", icon: Gauge },
+  { title: "AI guidance", subtitle: "Get decision support", icon: Sparkles },
+];
 
 export default function Home() {
-  const [, setLocation] = useLocation();
-  const { data, isLoading, refetch } = trpc.dashboard.summary.useQuery(undefined, { refetchInterval: 5000 });
-  const { data: health } = trpc.health.useQuery(undefined, { refetchInterval: 5000 });
-  if (isLoading || !data) return <DashboardSkeleton />;
-  const { metrics } = data;
-  const kpis = [
-    { label: "Total transactions", value: metrics.total.toLocaleString(), meta: "+4.8% vs previous period", trend: "up", icon: CreditCard, tone: "blue" },
-    { label: "Fraud detected", value: metrics.fraud.toLocaleString(), meta: `${pct(metrics.fraudRate)} of transactions`, trend: "up", icon: ShieldAlert, tone: "rose" },
-    { label: "Avg fraud probability", value: pct(metrics.avgProbability), meta: "Target < 8.0%", trend: "down", icon: Gauge, tone: "amber" },
-    { label: "Model precision", value: pct(metrics.precision), meta: "Production target 85%", trend: "up", icon: ShieldCheck, tone: "green" },
-    { label: "Model recall", value: pct(metrics.recall), meta: "Production target 80%", trend: "up", icon: TrendingUp, tone: "green" },
-    { label: "System latency", value: `${Math.round(metrics.avgLatency)} ms`, meta: `P95 ${Math.round(metrics.p95)} ms`, trend: "down", icon: Clock3, tone: "slate" },
-  ];
-  return <div className="mx-auto max-w-[1440px]">
-    <SectionHeader eyebrow="SYSTEM OVERVIEW" title="Fraud detection control room" description="A live view of transaction risk, model health, and system performance." action={<div className="flex items-center gap-3"><span className="hidden text-[11px] text-slate-400 sm:inline">Last updated just now</span><button onClick={() => refetch()} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900">Refresh data</button></div>} />
-    <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">{kpis.map((kpi) => <div key={kpi.label} className="panel relative overflow-hidden p-4"><div className="mb-3 flex items-start justify-between"><span className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500">{kpi.label}</span><span className={`grid h-7 w-7 place-items-center rounded-md ${kpi.tone === "blue" ? "bg-blue-50 text-blue-600" : kpi.tone === "rose" ? "bg-rose-50 text-rose-600" : kpi.tone === "amber" ? "bg-amber-50 text-amber-600" : kpi.tone === "green" ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-600"}`}><kpi.icon size={15} /></span></div><div className="text-[25px] font-semibold tracking-tight text-slate-900">{kpi.value}</div><div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">{kpi.trend === "up" ? <ArrowUpRight size={12} className="text-emerald-500" /> : <ArrowDownRight size={12} className="text-emerald-500" />}{kpi.meta}</div></div>)}</div>
+  return (
+    <div className="mx-auto max-w-[1460px]">
+      <section className="hero-glow rounded-[30px] border border-white/10 bg-[#0a1017]/90 p-6 shadow-[0_0_0_1px_rgba(148,163,184,0.08),0_25px_80px_rgba(2,6,23,0.85)] md:p-8 xl:p-10">
+        <div className="mb-8 flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-slate-400">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/5 ring-1 ring-white/10">
+              <ShieldCheck size={16} className="text-sky-300" />
+            </span>
+            <span>Fraud Sentinel</span>
+          </div>
+          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[10px] text-slate-300">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+            workspace ready
+          </div>
+        </div>
 
-    <div className="mb-6 grid gap-6 xl:grid-cols-[1.55fr_1fr]">
-      <div className="panel p-5"><div className="mb-4 flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-800">Transaction activity</h3><p className="mt-1 text-[11px] text-slate-400">Processed volume and flagged activity</p></div><button onClick={() => setLocation("/transactions")} className="text-xs font-medium text-blue-600 hover:text-blue-700">View transactions →</button></div><div className="h-[250px]"> <ResponsiveContainer width="100%" height="100%"><AreaChart data={data.trend}><defs><linearGradient id="txFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2563eb" stopOpacity={0.18} /><stop offset="100%" stopColor="#2563eb" stopOpacity={0} /></linearGradient></defs><CartesianGrid stroke="#e9eef5" vertical={false} /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#94a3b8" }} /><YAxis tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#94a3b8" }} /><Tooltip contentStyle={{ border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 12, boxShadow: "0 8px 30px rgba(15,23,42,.08)" }} /><Area type="monotone" dataKey="total" name="Transactions" stroke="#2563eb" strokeWidth={2} fill="url(#txFill)" /><Area type="monotone" dataKey="fraud" name="Fraud" stroke="#e11d48" strokeWidth={2} fill="none" /></AreaChart></ResponsiveContainer></div><div className="mt-2 flex gap-4 text-[11px] text-slate-500"><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-blue-600" /> Transactions</span><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-rose-600" /> Fraud flagged</span></div></div>
-      <div className="panel p-5"><div className="mb-4 flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-800">Fraud probability distribution</h3><p className="mt-1 text-[11px] text-slate-400">Current production scoring bands</p></div><MoreHorizontal size={18} className="text-slate-400" /></div><div className="h-[210px]"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={data.distribution} dataKey="value" nameKey="name" innerRadius={58} outerRadius={82} paddingAngle={3} stroke="none">{data.distribution.map((entry, index) => <Cell key={entry.name} fill={palette[index]} />)}</Pie><Tooltip contentStyle={{ border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 12 }} /><Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, color: "#64748b" }} /></PieChart></ResponsiveContainer></div></div>
+        <div className="grid items-center gap-10 xl:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            <p className="mb-4 text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400">
+              Real-time fraud intelligence
+            </p>
+            <h1 className="max-w-[700px] text-5xl font-medium leading-[0.9] tracking-[-0.07em] text-white md:text-7xl">
+              Fraud intelligence,<br />
+              built for trust.
+            </h1>
+
+            <p className="mt-6 max-w-[620px] text-lg leading-8 text-slate-300">
+              Detect suspicious payment behavior, monitor model performance, and act on risk decisions
+              with a single fraud operations cockpit built for modern teams.
+            </p>
+
+            <div className="mt-8 flex flex-wrap gap-3">
+              <button className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white text-sm font-medium text-slate-900 px-5 py-3 shadow-lg shadow-slate-950/20 hover:bg-slate-100">
+                Analyze transactions
+                <ArrowRight size={16} />
+              </button>
+              <button className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-white hover:bg-white/10">
+                View model status
+              </button>
+            </div>
+
+            <div className="mt-8 flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
+              <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-400" /> Real-time scoring</span>
+              <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-sky-400" /> Drift monitoring</span>
+              <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-violet-400" /> Model governance</span>
+            </div>
+          </div>
+
+          <div className="relative flex min-h-[360px] items-center justify-center">
+            <div className="relative flex h-64 w-64 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] shadow-[inset_0_0_55px_rgba(148,163,184,0.08)]">
+              <div className="absolute inset-5 rounded-full border border-dashed border-sky-300/20" />
+              <div className="relative flex h-32 w-32 items-center justify-center rounded-[2rem] border border-white/15 bg-[#f7f7f7] text-slate-900 shadow-[0_0_60px_rgba(255,255,255,0.16)]">
+                <ShieldCheck size={54} strokeWidth={1.5} />
+              </div>
+              <div className="absolute -bottom-5 rounded-full border border-white/10 bg-[#101a25] px-5 py-2 text-[10px] font-medium uppercase tracking-[0.24em] text-slate-300 shadow-xl">
+                Fraud Sentinel
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <div className="mb-5 flex items-end justify-between gap-4">
+          <div>
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">
+              Your mission
+            </p>
+            <h2 className="text-3xl font-medium tracking-[-0.05em] text-white">What would you like to explore today?</h2>
+          </div>
+          <button className="hidden items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-300 md:inline-flex">
+            See all capabilities <ArrowRight size={14} />
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {quickActions.map(({ title, subtitle, icon: Icon }) => (
+            <div key={title} className="rounded-[22px] border border-white/10 bg-white/3 p-5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] hover:bg-white/[0.04]">
+              <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-100">
+                <Icon size={18} />
+              </div>
+              <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400">
+                Discover
+              </div>
+              <h3 className="text-2xl font-medium tracking-[-0.04em] text-white">{title}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-400">{subtitle}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-10 grid gap-4 md:grid-cols-3">
+        <div className="rounded-[24px] border border-white/10 bg-[#0a1017]/90 p-5">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-emerald-300">
+            <Circle size={8} fill="currentColor" className="text-emerald-300" /> model health
+          </div>
+          <div className="text-3xl font-semibold tracking-[-0.06em] text-white">98.6%</div>
+          <p className="mt-2 text-sm text-slate-400">Production model accuracy remains above target across the latest transaction window.</p>
+        </div>
+
+        <div className="rounded-[24px] border border-white/10 bg-[#0a1017]/90 p-5">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-sky-300">
+            <TrendingUp size={12} /> anomaly detection
+          </div>
+          <div className="text-3xl font-semibold tracking-[-0.06em] text-white">4.8x</div>
+          <p className="mt-2 text-sm text-slate-400">Faster detection compared to manual review workflows and delayed analyst escalation.</p>
+        </div>
+
+        <div className="rounded-[24px] border border-white/10 bg-[#0a1017]/90 p-5">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-violet-500/20 bg-violet-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-violet-300">
+            <Zap size={12} /> workflow coverage
+          </div>
+          <div className="text-3xl font-semibold tracking-[-0.06em] text-white">24/7</div>
+          <p className="mt-2 text-sm text-slate-400">Always-on detection and monitoring support for continuous payment stream protection.</p>
+        </div>
+      </section>
     </div>
-
-    <div className="mb-6 grid gap-6 xl:grid-cols-[1fr_1.15fr]"><div className="panel p-5"><div className="mb-4 flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-800">Fraud by merchant category</h3><p className="mt-1 text-[11px] text-slate-400">Flagged transactions in selected window</p></div></div><div className="h-[230px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.category} layout="vertical" margin={{ left: 12, right: 8 }}><CartesianGrid stroke="#e9eef5" horizontal={false} /><XAxis type="number" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#94a3b8" }} /><YAxis dataKey="name" type="category" width={100} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748b" }} /><Tooltip contentStyle={{ border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 12 }} /><Bar dataKey="fraud" name="Fraud" fill="#e11d48" radius={[0, 3, 3, 0]} barSize={15} /></BarChart></ResponsiveContainer></div></div><div className="panel p-5"><div className="mb-4 flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-800">System health</h3><p className="mt-1 text-[11px] text-slate-400">Connectivity and inference service status</p></div><span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600"><StatusDot /> Operational</span></div><div className="grid gap-2 sm:grid-cols-2">{[{ label: "Inference API", value: health?.api ?? "connected", icon: NetworkIcon }, { label: "Database", value: health?.database ?? "connected", icon: DatabaseIcon }, { label: "Model registry", value: health?.model ?? "loaded", icon: ModelIcon }, { label: "Pipeline stream", value: health?.pipeline ?? "stopped", icon: ActivityIcon }].map((item) => <div key={item.label} className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3"><span className="grid h-8 w-8 place-items-center rounded-md bg-white text-slate-500 shadow-sm"><item.icon /></span><div className="min-w-0"><div className="text-xs font-medium text-slate-700">{item.label}</div><div className="mt-0.5 flex items-center gap-1.5 text-[11px] capitalize text-slate-500"><StatusDot /> {item.value}</div></div></div>)}</div></div></div>
-
-    <div className="panel overflow-hidden"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h3 className="text-sm font-semibold text-slate-800">Recent transaction feed</h3><p className="mt-1 text-[11px] text-slate-400">Newest production decisions</p></div><button onClick={() => setLocation("/transactions")} className="text-xs font-medium text-blue-600 hover:text-blue-700">Open live feed →</button></div><TransactionTable rows={data.recentTransactions} compact onSelect={(id) => setLocation(`/transactions/${id}`)} /></div>
-  </div>;
+  );
 }
 
-function TransactionTable({ rows, compact = false, onSelect }: { rows: any[]; compact?: boolean; onSelect?: (id: string) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left"><thead className="bg-slate-50/70 text-[10px] uppercase tracking-[0.08em] text-slate-400"><tr><th className="px-5 py-3 font-semibold">Transaction</th><th className="px-4 py-3 font-semibold">Timestamp</th><th className="px-4 py-3 font-semibold">Amount</th><th className="px-4 py-3 font-semibold">Payment</th><th className="px-4 py-3 font-semibold">Risk probability</th><th className="px-4 py-3 font-semibold">Decision</th><th className="px-4 py-3 font-semibold">Latency</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.map((row) => <tr key={row.id} onClick={() => onSelect?.(row.id)} className={`transition-colors ${onSelect ? "cursor-pointer hover:bg-blue-50/40" : ""}`}><td className="px-5 py-3"><div className="font-mono text-[11px] font-semibold text-slate-700">{row.id}</div><div className="mt-0.5 text-[10px] text-slate-400">{row.merchantName}</div></td><td className="px-4 py-3 text-[11px] text-slate-500">{new Date(row.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td className="px-4 py-3 text-xs font-semibold text-slate-700">{money(row.amount)}</td><td className="px-4 py-3 text-[11px] text-slate-500">{row.paymentMethod}</td><td className="px-4 py-3"><div className="flex items-center gap-2"><div className="h-1.5 w-14 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${row.riskLevel === "HIGH" ? "bg-rose-500" : row.riskLevel === "MEDIUM" ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${row.fraudProbability * 100}%` }} /></div><span className={`text-[11px] font-semibold ${row.riskLevel === "HIGH" ? "text-rose-600" : row.riskLevel === "MEDIUM" ? "text-amber-600" : "text-slate-600"}`}>{pct(row.fraudProbability)}</span></div></td><td className="px-4 py-3"><span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${row.prediction === "FRAUD" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>{row.prediction}</span></td><td className="px-4 py-3 font-mono text-[11px] text-slate-500">{row.processingTimeMs} ms</td></tr>)}</tbody></table>{!rows.length && <div className="p-8 text-center text-sm text-slate-500">No transactions match the current filter.</div>}</div>; }
+type TransactionRow = {
+  id: string;
+  prediction: string;
+  riskLevel: string;
+  amount: number;
+  merchantName: string;
+  merchantCategory?: string;
+  customerId?: string;
+  paymentMethod?: string;
+  timestamp: string;
+};
 
-function DashboardSkeleton() { return <div className="mx-auto max-w-[1440px] animate-pulse"><div className="mb-6 h-12 w-80 rounded bg-slate-200" /><div className="mb-6 grid grid-cols-3 gap-3">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-28 rounded-lg bg-slate-200" />)}</div><div className="grid grid-cols-2 gap-6"><div className="h-80 rounded-lg bg-slate-200" /><div className="h-80 rounded-lg bg-slate-200" /></div></div>; }
+export function TransactionTable({
+  rows,
+  onSelect,
+}: {
+  rows: TransactionRow[];
+  onSelect: (id: string) => void;
+}) {
+  const money = (value: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(value);
 
-function NetworkIcon() { return <span className="text-emerald-500"><TrendingUp size={15} /></span>; }
-function DatabaseIcon() { return <span className="text-emerald-500"><CreditCard size={15} /></span>; }
-function ModelIcon() { return <span className="text-emerald-500"><ShieldCheck size={15} /></span>; }
-function ActivityIcon() { return <span className="text-blue-500"><Gauge size={15} /></span>; }
-
-export { TransactionTable };
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-left text-xs text-slate-700">
+        <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+          <tr>
+            <th className="px-5 py-3 font-medium">Transaction</th>
+            <th className="px-5 py-3 font-medium">Customer</th>
+            <th className="px-5 py-3 font-medium">Merchant</th>
+            <th className="px-5 py-3 font-medium">Amount</th>
+            <th className="px-5 py-3 font-medium">Risk</th>
+            <th className="px-5 py-3 font-medium">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
+                No transactions match the current filter.
+              </td>
+            </tr>
+          ) : (
+            rows.map(row => (
+              <tr
+                key={row.id}
+                onClick={() => onSelect(row.id)}
+                className="cursor-pointer border-t border-slate-100 transition hover:bg-slate-50"
+              >
+                <td className="px-5 py-3 align-middle">
+                  <div className="font-medium text-slate-800">{row.id}</div>
+                  <div className="mt-1 font-mono text-[10px] text-slate-400">
+                    {new Date(row.timestamp).toLocaleDateString()}
+                  </div>
+                </td>
+                <td className="px-5 py-3 align-middle">
+                  <div className="font-medium text-slate-700">{row.customerId ?? "—"}</div>
+                  <div className="mt-1 text-[10px] text-slate-400">{row.paymentMethod ?? "Card"}</div>
+                </td>
+                <td className="px-5 py-3 align-middle">
+                  <div className="font-medium text-slate-700">{row.merchantName}</div>
+                  <div className="mt-1 text-[10px] text-slate-400">{row.merchantCategory ?? "General"}</div>
+                </td>
+                <td className="px-5 py-3 align-middle font-medium text-slate-800">
+                  {money(row.amount)}
+                </td>
+                <td className="px-5 py-3 align-middle">
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                      row.riskLevel === "HIGH"
+                        ? "bg-rose-50 text-rose-700"
+                        : row.riskLevel === "MEDIUM"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    {row.riskLevel}
+                  </span>
+                </td>
+                <td className="px-5 py-3 align-middle">
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                      row.prediction === "FRAUD"
+                        ? "bg-rose-50 text-rose-700"
+                        : "bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    {row.prediction}
+                  </span>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}

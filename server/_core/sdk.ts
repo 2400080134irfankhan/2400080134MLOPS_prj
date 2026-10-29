@@ -286,6 +286,20 @@ class SDKServer {
     }
 
     const sessionUserId = session.openId;
+    if (sessionUserId === "demo-fraud-sentinel") {
+      const now = new Date();
+      return {
+        id: 0,
+        openId: sessionUserId,
+        name: "Demo Analyst",
+        email: process.env.DEMO_AUTH_EMAIL ?? "demo@fraudsentinel.local",
+        loginMethod: "demo",
+        role: "user",
+        createdAt: now,
+        updatedAt: now,
+        lastSignedIn: now,
+      };
+    }
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 

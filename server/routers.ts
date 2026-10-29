@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -6,13 +7,45 @@ import { publicProcedure, router } from "./_core/trpc";
 import { addAudit, classify, getMetrics, getTransaction, models, monitoring, state, summary } from "./fraud-data";
 import { activeModelVersion, deployModel, mlopsHealth, mlopsStatus, rollbackModel, trainModel } from "./mlops";
 import { defaultDataset, listDatasets, predictWithDataset } from "./dataset-model";
+import { analyzeLink } from "./link-detector";
+import { analyzeEmail } from "./email-detector";
+import { sdk } from "./_core/sdk";
 
 const riskFilter = z.enum(["ALL", "FRAUD", "LEGITIMATE", "HIGH", "MEDIUM", "LOW"]).default("ALL");
+const DEMO_OPEN_ID = "demo-fraud-sentinel";
+const DEMO_EMAIL = process.env.DEMO_AUTH_EMAIL ?? "demo@fraudsentinel.local";
+const DEMO_PASSWORD = process.env.DEMO_AUTH_PASSWORD ?? "SentinelDemo123!";
+const demoAuthEnabled = process.env.DEMO_AUTH_ENABLED === "true";
 
 export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
+    demoConfig: publicProcedure.query(() => ({
+      enabled: demoAuthEnabled,
+      email: demoAuthEnabled ? DEMO_EMAIL : null,
+    })),
+    demoSignIn: publicProcedure.input(z.object({
+      email: z.string().trim().email(),
+      password: z.string().min(1),
+    })).mutation(async ({ input, ctx }) => {
+      if (!demoAuthEnabled) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Demo authentication is disabled" });
+      }
+      if (input.email.toLowerCase() !== DEMO_EMAIL.toLowerCase() || input.password !== DEMO_PASSWORD) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid demo credentials" });
+      }
+      const sessionToken = await sdk.signSession({
+        openId: DEMO_OPEN_ID,
+        appId: process.env.VITE_APP_ID || "fraud-sentinel-demo",
+        name: "Demo Analyst",
+      }, { expiresInMs: 1000 * 60 * 60 * 8 });
+      ctx.res.cookie(COOKIE_NAME, sessionToken, {
+        ...getSessionCookieOptions(ctx.req),
+        maxAge: 1000 * 60 * 60 * 8,
+      });
+      return { success: true as const, token: sessionToken };
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -22,6 +55,19 @@ export const appRouter = router({
   health: publicProcedure.query(() => ({ api: "connected", database: "connected", model: "loaded", pipeline: state.pipeline.status.toLowerCase(), updatedAt: new Date().toISOString() })),
   datasets: router({
     list: publicProcedure.query(() => listDatasets()),
+  }),
+  linkDetection: router({
+    analyze: publicProcedure.input(z.object({ url: z.string().trim().min(1).max(2048) })).mutation(({ input }) => analyzeLink(input.url)),
+  }),
+  emailDetection: router({
+    analyze: publicProcedure.input(z.object({
+      sender: z.string().trim().min(1).max(320),
+      subject: z.string().max(300),
+      content: z.string().max(20000),
+      replyTo: z.string().email().max(320).optional(),
+      headers: z.string().max(30000).optional(),
+      attachments: z.array(z.string().max(255)).max(20).optional(),
+    })).mutation(({ input }) => analyzeEmail(input.sender, input.subject, input.content, input)),
   }),
   mlops: router({
     status: publicProcedure.query(() => mlopsStatus()),

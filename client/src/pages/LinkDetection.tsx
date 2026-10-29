@@ -1,0 +1,38 @@
+import { Link2, Search, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { SectionHeader } from "@/components/DashboardLayout";
+import { EvidenceList, RecommendationPanel, RiskScoreCard, VerdictBanner } from "@/components/AnalysisResult";
+import { trpc } from "@/lib/trpc";
+
+const examples = ["https://www.example.com/account", "http://secure-login.example.click/verify", "https://nonexistent-example-123456.invalid/"];
+
+export default function LinkDetection() {
+  const [url, setUrl] = useState("");
+  const analysis = trpc.linkDetection.analyze.useMutation();
+  const result = analysis.data;
+  const run = () => analysis.mutate({ url: url.trim() });
+  const verdict = result?.verdict === "MALICIOUS" ? { title: "Do not trust this link", tone: "danger" as const, description: "Multiple indicators require treating this destination as potentially malicious." } : result?.verdict === "UNREACHABLE" ? { title: "The website could not be verified", tone: "warning" as const, description: "The domain could not be resolved or the website did not respond. This does not by itself prove malicious activity." } : result?.verdict === "NO_KNOWN_THREATS" ? { title: "No known threats detected", tone: "positive" as const, description: "The available checks found no strong risk indicators. This is not a guarantee that the website is legitimate." } : { title: "Review before proceeding", tone: "warning" as const, description: "Some checks are inconclusive or identified signals that deserve independent verification." };
+
+  return <div className="mx-auto max-w-[1100px]">
+    <SectionHeader eyebrow="LINK INTELLIGENCE" title="Check a suspicious link" description="Inspect URL structure, DNS, reachability, and local reputation without opening the page." action={<div className="flex items-center gap-2 text-[11px] text-slate-400"><ShieldCheck size={14} className="text-emerald-400" /> Controlled server checks</div>} />
+    <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+      <div className="panel p-5 sm:p-6">
+        <div className="mb-5 flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-300 ring-1 ring-blue-400/20"><Link2 size={19} /></span><div><h3 className="text-sm font-semibold text-white">URL risk scanner</h3><p className="mt-1 text-[11px] leading-5 text-slate-400">Requests are bounded, redirects are revalidated, and private destinations are blocked.</p></div></div>
+        <label className="field-label text-slate-400" htmlFor="link-input">Paste link or web address</label>
+        <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><input id="link-input" value={url} onChange={event => setUrl(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && url.trim()) run(); }} placeholder="https://example.com/login" className="field-input h-11 pl-10 pr-3" spellCheck={false} autoComplete="off" /></div>
+        <button onClick={run} disabled={!url.trim() || analysis.isPending} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-xs font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"><Search size={15} />{analysis.isPending ? "Analyzing link..." : "Analyze link"}</button>
+        {analysis.error && <p role="alert" className="mt-2 text-[11px] text-rose-300">{analysis.error.message}</p>}
+        <div className="mt-6 border-t border-white/10 pt-5"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Try a deterministic example</div><div className="flex flex-wrap gap-2">{examples.map(example => <button key={example} onClick={() => { setUrl(example); analysis.reset(); }} className="max-w-full truncate rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-left text-[10px] text-slate-400 hover:border-blue-400/40 hover:text-slate-200">{example}</button>)}</div></div>
+      </div>
+      <div className="panel min-h-[420px] p-5 sm:p-6">
+        {!result ? <div className="flex h-full min-h-[360px] flex-col items-center justify-center text-center"><div className="mb-4 grid h-14 w-14 place-items-center rounded-full bg-white/[0.04] text-slate-500 ring-1 ring-white/10"><ShieldCheck size={25} /></div><h3 className="text-sm font-semibold text-white">Waiting for a link</h3><p className="mt-2 max-w-[280px] text-[11px] leading-5 text-slate-500">The result will separate evidence, uncertainty, and recommended action.</p></div> : <div><div className="mb-4 flex items-start justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Domain analyzed</div><div className="mt-1 break-all font-mono text-xs text-slate-300">{result.hostname}</div><div className="mt-1 text-[10px] text-slate-500">{new Date().toLocaleString()}</div></div><span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] text-slate-300">{result.verdict.replaceAll("_", " ")}</span></div>
+          <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">What this result means</div><VerdictBanner verdict={result.dnsStatus === "DOMAIN_DOES_NOT_RESOLVE" ? "DOMAIN UNRESOLVED" : result.verdict.replaceAll("_", " ")} title={verdict.title} description={verdict.description} tone={verdict.tone} />
+          <div className="mt-4"><RiskScoreCard score={result.riskScore} /></div>
+          <EvidenceList items={[{ label: "URL syntax", detail: "The address was parsed as a supported HTTP or HTTPS URL.", tone: "positive" as const }, { label: "DNS resolution", detail: result.dnsStatus.replaceAll("_", " "), tone: result.dnsStatus === "DOMAIN_RESOLVES" ? "positive" as const : result.dnsStatus === "DOMAIN_DOES_NOT_RESOLVE" ? "danger" as const : "warning" as const }, { label: "Website reachability", detail: result.reachability === "NOT_CHECKED" && result.dnsStatus === "DOMAIN_DOES_NOT_RESOLVE" ? "NOT CHECKED — skipped because DNS did not resolve" : result.reachability.replaceAll("_", " ") + (result.httpStatus ? ` (HTTP ${result.httpStatus})` : ""), tone: result.reachability === "REACHABLE" ? "positive" as const : result.reachability === "NOT_CHECKED" ? "neutral" as const : "warning" as const }, { label: "Threat reputation", detail: result.reputationStatus.replaceAll("_", " "), tone: result.reputationStatus === "KNOWN_BLOCKED" ? "danger" as const : result.reputationStatus === "KNOWN_REVIEWED" ? "positive" as const : "neutral" as const }, ...result.signals.map(signal => ({ label: signal.label, detail: signal.detail, tone: signal.tone }))]} />
+          <div className="mt-5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Recommended action</div><RecommendationPanel>{result.verdict === "UNREACHABLE" ? "Do not enter passwords or payment information until you have independently verified the intended website address." : result.verdict === "MALICIOUS" ? "Do not open this link. Use a trusted bookmark or manually type the organization’s known website instead." : "Treat reachability and reputation as evidence, not proof. Verify the organization through an independent channel before sharing sensitive information."}</RecommendationPanel>
+          <details className="mt-4 text-[10px] text-slate-500"><summary className="cursor-pointer text-slate-400">Technical details</summary><div className="mt-2 space-y-1 font-mono"><div>Normalized URL: {result.normalizedUrl}</div><div>Resolved addresses: {result.resolvedAddresses.join(", ") || "none returned"}</div><div>{result.disclaimer}</div></div></details>
+        </div>}
+      </div>
+    </div>
+  </div>;
+}

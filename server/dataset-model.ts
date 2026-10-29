@@ -117,7 +117,7 @@ const models = new Map<DatasetName, DatasetModel>(datasetNames.map((name) => [na
 export function listDatasets() {
   return metadata.map((entry) => {
     const model = models.get(entry.dataset_name)!;
-    return { name: entry.dataset_name, sourceStyle: entry.source_style, description: entry.description, rows: entry.rows, features: entry.features, fraudRate: entry.fraud_rate, trainRows: model.trainRows, testRows: model.testRows, modelVersion: model.version, metrics: model.metrics };
+    return { name: entry.dataset_name, sourceStyle: entry.source_style, description: entry.description, rows: entry.rows, features: entry.features, fraudRate: entry.fraud_rate, trainRows: model.trainRows, testRows: model.testRows, modelVersion: model.version, metrics: model.metrics, source: "DagsHub dataset snapshot", synthetic: true };
   });
 }
 

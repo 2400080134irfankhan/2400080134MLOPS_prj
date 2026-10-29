@@ -6,7 +6,7 @@ Fraud Sentinel is an operational dashboard for real-time payment fraud detection
 
 ## What is implemented
 
-The dashboard includes a persistent operations shell with routes for Overview, Transactions, Pipeline, Monitoring, Models, Experiments, Alerts, Audit Logs, and Settings. The overview combines live KPI cards, transaction activity, risk probability bands, fraud by merchant category, system health, and a recent transaction feed. Transactions are searchable, filterable, paginated, and linked to an investigation view containing customer, merchant, device, location, engineered features, risk factors, model output, and processing timeline.
+The dashboard includes a persistent operations shell with routes for Overview, Transactions, Link Detection, Email Verification, Pipeline, Monitoring, Models, Experiments, Alerts, Audit Logs, and Settings. The overview combines live KPI cards, transaction activity, risk probability bands, fraud by merchant category, system health, and a recent transaction feed. Transactions are searchable, filterable, paginated, and linked to an investigation view containing customer, merchant, device, location, engineered features, risk factors, model output, and processing timeline. Link Detection and Email Verification provide safe, static heuristics for suspicious URLs and sender/message patterns; they never open submitted links, contact senders, or claim mailbox ownership.
 
 The pipeline page can start, pause, and stop a sequential simulator at 1, 5, or 10 transactions per second. Monitoring exposes data-quality counters, model performance, latency, feature drift, and deployment thresholds. The model registry compares Random Forest and Logistic Regression metadata, supports retraining initiation, and records promotion actions. Alerts can be acknowledged or resolved. Settings changes are applied to the process state and recorded in the audit log.
 
@@ -45,6 +45,7 @@ All client/server communication uses tRPC under `/api/trpc`.
 | --- | --- |
 | Dashboard | `dashboard.summary`, `health` |
 | Transactions | `transactions.list`, `transactions.get`, `transactions.predict` |
+| Trust signals | `linkDetection.analyze`, `emailDetection.analyze` |
 | Pipeline | `pipeline.status`, `pipeline.start`, `pipeline.pause`, `pipeline.stop`, `pipeline.step` |
 | Monitoring | `monitoring.overview`, `monitoring.drift`, `monitoring.performance` |
 | Models | `models.list`, `models.get`, `models.retrain`, `models.promote` |
@@ -70,6 +71,32 @@ pnpm test
 pnpm build
 ```
 
+The existing `client/` directory is the frontend application and `server/` is the
+Express/tRPC backend. They remain in one workspace so the current same-origin
+development and production builds continue to work. For a separate frontend
+deployment, set `VITE_API_BASE_URL` to the backend origin at frontend build time
+and set `CLIENT_ORIGIN` to the exact frontend origin on the backend. Leave both
+empty for the default same-origin setup. See [.env.example](./.env.example).
+
+### Authentication
+
+The application uses the existing OAuth provider rather than collecting passwords
+in the frontend. The callback validates a one-time state nonce, exchanges the
+authorization code server-side, synchronizes the user record, and issues an
+HTTP-only signed session cookie. Dashboard routes are protected in the frontend
+for user experience, while the backend session is the source of truth.
+
+Copy `.env.example` to `.env` and configure `OAUTH_SERVER_URL`, `JWT_SECRET`,
+`VITE_OAUTH_PORTAL_URL`, and `VITE_APP_ID` to enable the sign-in and workspace
+access actions. Password recovery remains managed by the configured identity
+provider; the login screen does not claim to send a local reset email.
+
+For a local product demonstration before OAuth is configured, start the server
+with `DEMO_AUTH_ENABLED=true`. The preview login then exposes the clearly labeled
+demo account `demo@fraudsentinel.local` / `SentinelDemo123!`. Demo sessions are
+short-lived and use the same signed session validation path, but demo mode is
+not production authentication and must remain disabled in deployed environments.
+
 ## Testing
 
 The test suite covers the scaffold authentication contract plus synthetic data population, required field quality, risk-band semantics, bounded metrics, and processed-record counts. Run the complete suite with `pnpm test`.
@@ -79,6 +106,8 @@ The test suite covers the scaffold authentication contract plus synthetic data p
 Operational state is currently process-local and resets when the server restarts. The scaffold includes Drizzle/MySQL support, but the feature tables and durable seeding workflow from the larger FastAPI/PostgreSQL brief are not wired into this preview build. The current separation in `server/fraud-data.ts` and `server/routers.ts` is intentional: it provides a compact replacement point for durable transaction, prediction, alert, metric, and audit repositories.
 
 The frontend uses polling through tRPC for live refreshes. The original WebSocket contract is represented by the pipeline procedures and can be upgraded to a server-sent or WebSocket transport without changing page contracts.
+
+The trust-signal analyzers use a versioned in-repository organization/domain directory, deterministic pattern checks, bounded DNS lookups, and SSRF-blocked HTTP HEAD checks. They do not render pages, download content, contact senders, or verify mailbox ownership. They are not wired to an unverified third-party fraud feed or email provider. A production integration should add an authenticated provider with explicit licensing, rate limits, privacy controls, and a reviewable fallback; the typed tRPC procedures provide the seam for that integration.
 
 The MLOps lifecycle is currently process-local as well: it is an executable release-control simulation with deterministic metrics, not a replacement for a durable MLflow registry, feature store, stream processor, or external inference service. Persisting runs and active versions requires moving `server/mlops.ts` state behind the existing Drizzle database layer.
 

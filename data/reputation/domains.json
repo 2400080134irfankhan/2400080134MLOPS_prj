@@ -1,0 +1,20 @@
+{
+  "version": "2026-10-26",
+  "source": "Fraud Sentinel reviewed seed set",
+  "disclaimer": "This seed set is not a live threat-intelligence feed. Unknown domains must remain under review.",
+  "domains": [
+    { "domain": "example.com", "status": "verified", "organization": null },
+    { "domain": "google.com", "status": "verified", "organization": "Google" },
+    { "domain": "microsoft.com", "status": "verified", "organization": "Microsoft" },
+    { "domain": "amazon.com", "status": "verified", "organization": "Amazon" },
+    { "domain": "apple.com", "status": "verified", "organization": "Apple" },
+    { "domain": "infosys.com", "status": "verified", "organization": "Infosys" },
+    { "domain": "accenture.com", "status": "verified", "organization": "Accenture" },
+    { "domain": "bit.ly", "status": "shortener", "organization": null },
+    { "domain": "tinyurl.com", "status": "shortener", "organization": null },
+    { "domain": "t.co", "status": "shortener", "organization": null },
+    { "domain": "rb.gy", "status": "shortener", "organization": null },
+    { "domain": "is.gd", "status": "shortener", "organization": null },
+    { "domain": "cutt.ly", "status": "shortener", "organization": null }
+  ]
+}
