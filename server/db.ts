@@ -1,9 +1,30 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
+import type { EmailAnalysis } from "./email-detector";
+import type { LinkAnalysis } from "./link-detector";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+const urlScans: LinkAnalysis[] = [];
+const emailScans: EmailAnalysis[] = [];
+
+export type DatabaseHealth = {
+  status: "connected" | "unconfigured" | "unavailable";
+};
+
+export async function checkDatabaseConnection(): Promise<DatabaseHealth> {
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("[") || process.env.DATABASE_URL.includes("<")) {
+    return { status: "unconfigured" };
+  }
+
+  try {
+    return (await getDb()) ? { status: "connected" } : { status: "unavailable" };
+  } catch (error) {
+    console.warn("[Database] Connectivity check failed:", error instanceof Error ? error.message : error);
+    return { status: "unavailable" };
+  }
+}
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
@@ -89,4 +110,18 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function saveUrlScan(result: LinkAnalysis) {
+  urlScans.unshift(result);
+}
+
+export async function saveEmailScan(result: EmailAnalysis) {
+  emailScans.unshift(result);
+}
+
+export async function listUrlScans(limit = 10) {
+  return urlScans.slice(0, limit);
+}
+
+export async function listEmailScans(limit = 10) {
+  return emailScans.slice(0, limit);
+}

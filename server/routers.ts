@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { checkDatabaseConnection, listEmailScans, listUrlScans, saveEmailScan, saveUrlScan } from "./db";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -52,14 +53,20 @@ export const appRouter = router({
       return { success: true } as const;
     }),
   }),
-  health: publicProcedure.query(() => ({ api: "connected", database: "connected", model: "loaded", pipeline: state.pipeline.status.toLowerCase(), updatedAt: new Date().toISOString() })),
+  health: publicProcedure.query(async () => ({ api: "connected" as const, database: (await checkDatabaseConnection()).status, model: "loaded" as const, pipeline: state.pipeline.status.toLowerCase(), updatedAt: new Date().toISOString() })),
   datasets: router({
     list: publicProcedure.query(() => listDatasets()),
   }),
   linkDetection: router({
-    analyze: publicProcedure.input(z.object({ url: z.string().trim().min(1).max(2048) })).mutation(({ input }) => analyzeLink(input.url)),
+    history: publicProcedure.query(() => listUrlScans()),
+    analyze: publicProcedure.input(z.object({ url: z.string().trim().min(1).max(2048) })).mutation(async ({ input }) => {
+      const result = await analyzeLink(input.url);
+      await saveUrlScan(result);
+      return result;
+    }),
   }),
   emailDetection: router({
+    history: publicProcedure.query(() => listEmailScans()),
     analyze: publicProcedure.input(z.object({
       sender: z.string().trim().min(1).max(320),
       subject: z.string().max(300),
@@ -67,7 +74,11 @@ export const appRouter = router({
       replyTo: z.string().email().max(320).optional(),
       headers: z.string().max(30000).optional(),
       attachments: z.array(z.string().max(255)).max(20).optional(),
-    })).mutation(({ input }) => analyzeEmail(input.sender, input.subject, input.content, input)),
+    })).mutation(async ({ input }) => {
+      const result = await analyzeEmail(input.sender, input.subject, input.content, input);
+      await saveEmailScan(result);
+      return result;
+    }),
   }),
   mlops: router({
     status: publicProcedure.query(() => mlopsStatus()),
