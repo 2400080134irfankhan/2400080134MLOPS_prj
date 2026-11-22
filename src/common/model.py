@@ -8,9 +8,9 @@ from xgboost import XGBClassifier
 from .schemas import FEATURES, CATEGORICAL_FEATURES
 
 
-def build_pipeline(scale_pos_weight: float = 1.0) -> Pipeline:
-    numeric = Pipeline([("scale", StandardScaler())])
-    categorical = Pipeline([("onehot", OneHotEncoder(handle_unknown="ignore"))])
+def build_pipeline(scale_pos_weight: float=1.0) -> Pipeline:
+    numeric = Pipeline([("scale",StandardScaler())])
+    categorical = Pipeline([("onehot",OneHotEncoder(handle_unknown="ignore"))])
     preprocessor = ColumnTransformer([
         ("numeric", numeric, FEATURES),
         ("categorical", categorical, CATEGORICAL_FEATURES),
