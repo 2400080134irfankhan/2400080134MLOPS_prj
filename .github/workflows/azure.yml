@@ -1,0 +1,106 @@
+name: Dashboard validation and Azure deployment
+
+on:
+  push:
+    branches: [main, azure-deployment-prep]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      VITE_APP_ID: ${{ vars.VITE_APP_ID }}
+      VITE_OAUTH_PORTAL_URL: ${{ vars.VITE_OAUTH_PORTAL_URL }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - name: Reject tracked local environment configuration
+        run: |
+          if [[ -n "$(git ls-files -- '.env' '.env.*' ':(exclude).env.example')" ]]; then
+            echo "::error::Remove tracked runtime environment files before building."
+            exit 1
+          fi
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - name: Check public OAuth build settings for release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_DEPLOY_ENABLED == 'true'
+        run: |
+          node --input-type=module -e '
+            const portal = new URL(process.env.VITE_OAUTH_PORTAL_URL);
+            if (portal.protocol !== "https:" || portal.username || portal.password ||
+                portal.search || portal.hash || !process.env.VITE_APP_ID?.trim()) process.exit(1);'
+      - run: pnpm build
+      - name: Install production dependencies and test the exact ZIP
+        run: |
+          deps="$RUNNER_TEMP/runtime-deps"
+          mkdir "$deps"
+          cp -r package.json pnpm-lock.yaml patches "$deps/"
+          pnpm --dir "$deps" install --prod --frozen-lockfile --config.node-linker=hoisted
+          python3 scripts/package-dashboard.py "$deps/node_modules" "$RUNNER_TEMP/dashboard.zip"
+          unzip -q "$RUNNER_TEMP/dashboard.zip" -d "$RUNNER_TEMP/expanded"
+          node scripts/smoke-production.mjs "$RUNNER_TEMP/expanded"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_DEPLOY_ENABLED == 'true'
+        with:
+          name: dashboard
+          path: ${{ runner.temp }}/dashboard.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  deploy:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: azure-dashboard-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dashboard
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - id: publish
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: dashboard.zip
+      - name: Verify deployed dashboard over HTTPS
+        env:
+          APP_URL: ${{ steps.publish.outputs.webapp-url }}
+        run: |
+          expected=$(unzip -p dashboard.zip dist/public/index.html | sha256sum | cut -d' ' -f1)
+          base=${APP_URL%/}
+          [[ "$base" == https://* ]]
+          for attempt in {1..18}; do
+            if curl -fsS --max-time 10 "$base/api/health" | jq -e '.status == "ok" and .service == "fraud-sentinel-backend"' >/dev/null &&
+               curl -fsS --max-time 10 "$base/" -o "$RUNNER_TEMP/live-index.html" &&
+               echo "$expected  $RUNNER_TEMP/live-index.html" | sha256sum --check --status; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::The dashboard health or deployed frontend verification failed."
+          exit 1

@@ -1,3 +1,16 @@
+import { randomBytes } from "node:crypto";
+import { sdk } from "./_core/sdk";
+import { COOKIE_NAME, OAUTH_STATE_COOKIE, encodeOAuthState } from "../shared/const";
+
+vi.hoisted(async () => {
+  const { randomBytes } = await import("node:crypto");
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("JWT_SECRET", randomBytes(32).toString("hex"));
+  vi.stubEnv("VITE_APP_ID", "test-app");
+  vi.stubEnv("OAUTH_SERVER_URL", "https://oauth.invalid");
+  vi.stubEnv("DATABASE_URL", "mysql://localhost/test");
+  vi.stubEnv("DEMO_AUTH_ENABLED", "false");
+});
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -8,6 +21,8 @@ import type { AppRouter } from "./routers";
 import { fetchApi, resolveTrpcUrl } from "../client/src/lib/api";
 
 vi.mock("./db", () => ({
+  getUserByOpenId: vi.fn(async (openId: string) => ({ openId, role: openId === "owner" ? "admin" : "user" })),
+  upsertUser: vi.fn(),
   checkDatabaseConnection: async () => ({ status: "unconfigured" }),
   listEmailScans: async () => [],
   listUrlScans: async () => [],
@@ -53,22 +68,62 @@ describe("shared serverless Express entry point", () => {
     });
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("https://frontend.example");
   });
-  it("allows anonymous access to scan history", async () => {
+  it("requires a session for scan history", async () => {
     const response = await fetch(`${base}/api/trpc/linkDetection.history`);
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(401);
   });
   it("returns JSON 404 for unknown API paths instead of the SPA", async () => {
     const response = await fetch(`${base}/api/unknown`);
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "API route not found" });
   });
+  it("exchanges a provider code, issues a secure session and resolves the database role", async () => {
+    const exchange = vi.spyOn(sdk, "exchangeCodeForToken").mockResolvedValue({ accessToken: "test-access" } as never);
+    vi.spyOn(sdk, "getUserInfo").mockResolvedValue({ openId: "analyst", name: "" } as never);
+    const nonce = randomBytes(18).toString("hex");
+    const state = encodeOAuthState({ redirectUri: base + "/api/oauth/callback", nonce });
+    const callback = base + "/api/oauth/callback?" + new URLSearchParams({ code: "test", state });
+    expect((await fetch(callback)).status).toBe(403);
+    expect(exchange).not.toHaveBeenCalled();
+    const response = await fetch(callback, {
+      headers: { Cookie: OAUTH_STATE_COOKIE + "=" + nonce }, redirect: "manual",
+    });
+    expect(response.status).toBe(302);
+    const session = response.headers.getSetCookie().find(value => value.startsWith(COOKIE_NAME + "="))!;
+    expect(session).toMatch(/; HttpOnly/i);
+    expect(session).toMatch(/; Secure/i);
+    const cookie = session.split(";")[0];
+    const me = await fetch(base + "/api/trpc/auth.me", { headers: { Cookie: cookie } });
+    expect((await me.json()).result.data.json).toMatchObject({ openId: "analyst", role: "user" });
+  });
+  it("uses the stored role for administrative HTTP requests", async () => {
+    for (const [id, expected] of [["analyst", 403], ["owner", 200]] as const) {
+      const token = await sdk.createSessionToken(id);
+      const response = await fetch(base + "/api/trpc/pipeline.pause", {
+        method: "POST", headers: { Cookie: COOKIE_NAME + "=" + token, "Content-Type": "application/json" },
+        body: JSON.stringify({ json: null }),
+      });
+      expect(response.status).toBe(expected);
+    }
+  });
+  it("rejects expired, wrong-app, demo and invalid sessions", async () => {
+    for (const token of [
+      await sdk.signSession({ openId: "analyst", name: "", appId: "other" }),
+      await sdk.signSession({ openId: "analyst", name: "", appId: "test-app" }, { expiresInMs: -5000 }),
+      await sdk.createSessionToken("demo-fraud-sentinel"),
+      "invalid",
+    ]) {
+      const response = await fetch(base + "/api/trpc/dashboard.summary", { headers: { Authorization: "Bearer " + token } });
+      expect(response.status).toBe(401);
+    }
+  });
   it("sends both detector mutations through the shared client to Express", async () => {
     const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({
       url: resolveTrpcUrl(`${base}/api/`),
       transformer: superjson,
-      fetch: (input, init) => fetchApi(input, {
+      fetch: async (input, init) => fetchApi(input, {
         ...init, credentials: "include",
-        headers: { ...init?.headers, Origin: "https://dashboard.example" },
+        headers: { ...init?.headers, Cookie: COOKIE_NAME + "=" + await sdk.createSessionToken("analyst"), Origin: "https://dashboard.example" },
       }),
     })] });
     // These deliberately invalid synthetic inputs exercise the real detectors

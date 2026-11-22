@@ -34,7 +34,7 @@ describe("fraud data and risk engine", () => {
   });
 
   it("returns a fraud decision and contributing factors for an input transaction", async () => {
-    const caller = appRouter.createCaller({ user: null, req: {} as never, res: {} as never });
+    const caller = appRouter.createCaller({ user: { role: "user" } as never, req: {} as never, res: {} as never });
     const result = await caller.transactions.predict({ amount: 1450, paymentMethod: "Virtual card", isNewDevice: true, isInternational: true, velocity1h: 8, failedAttempts: 3 });
     expect(result.prediction).toBe("FRAUD");
     expect(result.riskLevel).toBe("HIGH");
@@ -43,7 +43,7 @@ describe("fraud data and risk engine", () => {
   });
 
   it("runs an MLOps candidate through release gates before deployment", async () => {
-    const caller = appRouter.createCaller({ user: null, req: {} as never, res: {} as never });
+    const caller = appRouter.createCaller({ user: { role: "admin" } as never, req: {} as never, res: {} as never });
     const trained = await caller.mlops.train();
     expect(trained.latestRun?.stage).toBe("READY");
     expect(Object.values(trained.gates).every(Boolean)).toBe(true);
@@ -58,7 +58,7 @@ describe("fraud data and risk engine", () => {
     expect(datasets).toHaveLength(3);
     expect(datasets.every((dataset) => dataset.trainRows === 1600 && dataset.testRows === 400)).toBe(true);
     expect(datasets.every((dataset) => dataset.metrics.f1 >= 0 && dataset.metrics.f1 <= 1)).toBe(true);
-    const caller = appRouter.createCaller({ user: null, req: {} as never, res: {} as never });
+    const caller = appRouter.createCaller({ user: { role: "user" } as never, req: {} as never, res: {} as never });
     const prediction = await caller.transactions.predict({ amount: 850, paymentMethod: "Card", isNewDevice: true, isInternational: true, velocity1h: 8, failedAttempts: 3, datasetName: "02_credit_card_style" });
     expect(prediction.dataset).toBe("02_credit_card_style");
     expect(prediction.modelArtifact).toContain("02_credit_card_style");

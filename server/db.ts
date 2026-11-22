@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
 import type { EmailAnalysis } from "./email-detector";
@@ -19,9 +19,12 @@ export async function checkDatabaseConnection(): Promise<DatabaseHealth> {
   }
 
   try {
-    return (await getDb()) ? { status: "connected" } : { status: "unavailable" };
+    const db = await getDb();
+    if (!db) return { status: "unavailable" };
+    await db.execute(sql`SELECT 1`);
+    return { status: "connected" };
   } catch (error) {
-    console.warn("[Database] Connectivity check failed:", error instanceof Error ? error.message : error);
+    console.warn("[Database] Connectivity check failed");
     return { status: "unavailable" };
   }
 }
@@ -32,7 +35,7 @@ export async function getDb() {
     try {
       _db = drizzle(process.env.DATABASE_URL);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      console.warn("[Database] Failed to connect");
       _db = null;
     }
   }
@@ -93,7 +96,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       set: updateSet,
     });
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
+    console.error("[Database] Failed to upsert user");
     throw error;
   }
 }

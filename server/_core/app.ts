@@ -1,3 +1,4 @@
+import { validateEnvironment } from "./env";
 import express from "express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -6,6 +7,7 @@ import { createContext } from "./context";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 
 export function createApp() {
+  validateEnvironment();
   const app = express();
   app.disable("x-powered-by");
   // Install CORS before routes, in both local and serverless entry points.
@@ -33,6 +35,10 @@ export function createApp() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
+  app.use("/api", (_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
   registerOAuthRoutes(app);
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", service: "fraud-sentinel-backend" });

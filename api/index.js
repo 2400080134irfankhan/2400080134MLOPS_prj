@@ -1,3 +1,35 @@
+// server/_core/env.ts
+var ENV = {
+  appId: process.env.VITE_APP_ID ?? "",
+  cookieSecret: process.env.JWT_SECRET ?? "",
+  databaseUrl: process.env.DATABASE_URL ?? "",
+  oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
+  ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
+  isProduction: process.env.NODE_ENV === "production",
+  forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
+  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  clientOrigin: process.env.CLIENT_ORIGIN ?? ""
+};
+var demoAuthEnabled = process.env.NODE_ENV === "development" && process.env.DEMO_AUTH_ENABLED === "true" && Boolean(process.env.DEMO_AUTH_EMAIL?.trim() && process.env.DEMO_AUTH_PASSWORD);
+function validateEnvironment() {
+  if (!ENV.isProduction) return;
+  if (process.env.DEMO_AUTH_ENABLED?.trim().toLowerCase() === "true") {
+    throw new Error("DEMO_AUTH_ENABLED must be false in production");
+  }
+  if (Buffer.byteLength(ENV.cookieSecret.trim()) < 32) {
+    throw new Error("JWT_SECRET must contain at least 32 bytes in production");
+  }
+  if (!ENV.appId.trim()) throw new Error("VITE_APP_ID is required in production");
+  for (const [name, value, protocol] of [
+    ["OAUTH_SERVER_URL", ENV.oAuthServerUrl, "https:"],
+    ["DATABASE_URL", ENV.databaseUrl, "mysql:"]
+  ]) {
+    if (!URL.canParse(value) || new URL(value).protocol !== protocol) {
+      throw new Error(`Set ${name} to a valid ${protocol} URL in production`);
+    }
+  }
+}
+
 // server/_core/app.ts
 import express from "express";
 
@@ -27,167 +59,56 @@ var decodeOAuthState = (state2) => {
 import { parse as parseCookieHeader2 } from "cookie";
 
 // server/db.ts
-import { desc, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/mysql2";
 
 // drizzle/schema.ts
-import { jsonb, pgEnum, pgTable, serial, text, timestamp, integer, boolean, varchar } from "drizzle-orm/pg-core";
-var userRole = pgEnum("role", ["user", "admin"]);
-var users = pgTable("users", {
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+var users = mysqlTable("users", {
   /**
    * Surrogate primary key. Auto-incremented numeric value managed by the database.
    * Use this for relations between tables.
    */
-  id: serial("id").primaryKey(),
+  id: int("id").autoincrement().primaryKey(),
   /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: userRole("role").default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().$onUpdateFn(() => /* @__PURE__ */ new Date()).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
 });
-var scanType = pgEnum("scan_type", ["URL", "EMAIL"]);
-var scanJobStatus = pgEnum("scan_job_status", ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED"]);
-var securityEventType = pgEnum("security_event_type", ["AUTH", "SCAN", "ACCESS", "CONFIGURATION"]);
-var urlScans = pgTable("url_scans", {
-  id: serial("id").primaryKey(),
-  userId: varchar("userId", { length: 128 }),
-  url: text("url").notNull(),
-  hostname: varchar("hostname", { length: 253 }).notNull(),
-  verdict: varchar("verdict", { length: 32 }).notNull(),
-  riskScore: integer("riskScore").notNull(),
-  confidence: integer("confidence"),
-  result: jsonb("result").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-});
-var emailScans = pgTable("email_scans", {
-  id: serial("id").primaryKey(),
-  userId: varchar("userId", { length: 128 }),
-  sender: varchar("sender", { length: 320 }).notNull(),
-  senderDomain: varchar("senderDomain", { length: 253 }).notNull(),
-  verdict: varchar("verdict", { length: 32 }).notNull(),
-  riskScore: integer("riskScore").notNull(),
-  confidence: integer("confidence"),
-  result: jsonb("result").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-});
-var emailConnections = pgTable("email_connections", {
-  id: serial("id").primaryKey(),
-  userId: varchar("userId", { length: 128 }).notNull(),
-  provider: varchar("provider", { length: 32 }).notNull(),
-  providerAccountId: varchar("providerAccountId", { length: 255 }).notNull(),
-  scopes: jsonb("scopes").notNull(),
-  encryptedRefreshToken: text("encryptedRefreshToken"),
-  active: boolean("active").default(true).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().$onUpdateFn(() => /* @__PURE__ */ new Date()).notNull()
-});
-var securityEvents = pgTable("security_events", {
-  id: serial("id").primaryKey(),
-  userId: varchar("userId", { length: 128 }),
-  eventType: securityEventType("eventType").notNull(),
-  action: varchar("action", { length: 128 }).notNull(),
-  outcome: varchar("outcome", { length: 32 }).notNull(),
-  metadata: jsonb("metadata"),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-});
-var modelPredictions = pgTable("model_predictions", {
-  id: serial("id").primaryKey(),
-  userId: varchar("userId", { length: 128 }),
-  scanType: scanType("scanType").notNull(),
-  scanId: integer("scanId").notNull(),
-  modelVersion: varchar("modelVersion", { length: 128 }).notNull(),
-  prediction: varchar("prediction", { length: 64 }).notNull(),
-  score: integer("score").notNull(),
-  explanation: jsonb("explanation").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-});
-var modelVersions = pgTable("model_versions", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 128 }).notNull(),
-  version: varchar("version", { length: 128 }).notNull().unique(),
-  status: varchar("status", { length: 32 }).notNull(),
-  metrics: jsonb("metrics").notNull(),
-  artifactUri: text("artifactUri"),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-});
-var scanJobs = pgTable("scan_jobs", {
-  id: serial("id").primaryKey(),
-  userId: varchar("userId", { length: 128 }),
-  type: scanType("type").notNull(),
-  status: scanJobStatus("status").default("QUEUED").notNull(),
-  idempotencyKey: varchar("idempotencyKey", { length: 255 }).notNull().unique(),
-  payload: jsonb("payload").notNull(),
-  result: jsonb("result"),
-  attempts: integer("attempts").default(0).notNull(),
-  error: text("error"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().$onUpdateFn(() => /* @__PURE__ */ new Date()).notNull()
-});
-var userFeedback = pgTable("user_feedback", {
-  id: serial("id").primaryKey(),
-  userId: varchar("userId", { length: 128 }).notNull(),
-  scanType: scanType("scanType").notNull(),
-  scanId: integer("scanId").notNull(),
-  label: varchar("label", { length: 64 }).notNull(),
-  comment: text("comment"),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-});
-
-// server/_core/env.ts
-var ENV = {
-  appId: process.env.VITE_APP_ID ?? "",
-  cookieSecret: process.env.JWT_SECRET ?? "",
-  databaseUrl: process.env.DATABASE_URL ?? "",
-  oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
-  ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
-  isProduction: process.env.NODE_ENV === "production",
-  forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
-  clientOrigin: process.env.CLIENT_ORIGIN ?? ""
-};
 
 // server/db.ts
 var _db = null;
-var _client = null;
-function hasUsableDatabaseUrl(value) {
-  return Boolean(value && !value.includes("[") && !value.includes("]") && !value.includes("<") && !value.includes(">"));
+var urlScans = [];
+var emailScans = [];
+async function checkDatabaseConnection() {
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("[") || process.env.DATABASE_URL.includes("<")) {
+    return { status: "unconfigured" };
+  }
+  try {
+    const db = await getDb();
+    if (!db) return { status: "unavailable" };
+    await db.execute(sql`SELECT 1`);
+    return { status: "connected" };
+  } catch (error) {
+    console.warn("[Database] Connectivity check failed");
+    return { status: "unavailable" };
+  }
 }
 async function getDb() {
-  if (!_db && hasUsableDatabaseUrl(process.env.DATABASE_URL)) {
+  if (!_db && process.env.DATABASE_URL) {
     try {
-      _client = postgres(process.env.DATABASE_URL, {
-        max: 5,
-        prepare: false
-      });
-      _db = drizzle(_client);
+      _db = drizzle(process.env.DATABASE_URL);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _client = null;
+      console.warn("[Database] Failed to connect");
       _db = null;
     }
   }
   return _db;
-}
-async function checkDatabaseConnection() {
-  if (!hasUsableDatabaseUrl(process.env.DATABASE_URL)) {
-    return { status: "unconfigured" };
-  }
-  try {
-    await getDb();
-    if (!_client) {
-      return { status: "unavailable" };
-    }
-    await _client`select 1`;
-    return { status: "connected" };
-  } catch (error) {
-    console.warn("[Database] Connectivity check failed:", error instanceof Error ? error.message : error);
-    return { status: "unavailable" };
-  }
 }
 async function upsertUser(user) {
   if (!user.openId) {
@@ -229,12 +150,11 @@ async function upsertUser(user) {
     if (Object.keys(updateSet).length === 0) {
       updateSet.lastSignedIn = /* @__PURE__ */ new Date();
     }
-    await db.insert(users).values(values).onConflictDoUpdate({
-      target: users.openId,
+    await db.insert(users).values(values).onDuplicateKeyUpdate({
       set: updateSet
     });
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
+    console.error("[Database] Failed to upsert user");
     throw error;
   }
 }
@@ -247,57 +167,17 @@ async function getUserByOpenId(openId) {
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result.length > 0 ? result[0] : void 0;
 }
-async function saveUrlScan(result, userId) {
-  const db = await getDb();
-  if (!db) return;
-  await db.insert(urlScans).values({
-    userId: userId ?? null,
-    url: result.normalizedUrl,
-    hostname: result.hostname,
-    verdict: result.verdict,
-    riskScore: result.riskScore,
-    confidence: result.confidence,
-    result
-  });
+async function saveUrlScan(result) {
+  urlScans.unshift(result);
 }
-async function saveEmailScan(result, userId) {
-  const db = await getDb();
-  if (!db) return;
-  await db.insert(emailScans).values({
-    userId: userId ?? null,
-    sender: result.sender,
-    senderDomain: result.senderDomain,
-    verdict: result.verdict,
-    riskScore: result.riskScore,
-    confidence: result.confidence,
-    result
-  });
+async function saveEmailScan(result) {
+  emailScans.unshift(result);
 }
 async function listUrlScans(limit = 10) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select({
-    id: urlScans.id,
-    url: urlScans.url,
-    hostname: urlScans.hostname,
-    verdict: urlScans.verdict,
-    riskScore: urlScans.riskScore,
-    confidence: urlScans.confidence,
-    createdAt: urlScans.createdAt
-  }).from(urlScans).orderBy(desc(urlScans.createdAt)).limit(limit);
+  return urlScans.slice(0, limit);
 }
 async function listEmailScans(limit = 10) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select({
-    id: emailScans.id,
-    sender: emailScans.sender,
-    senderDomain: emailScans.senderDomain,
-    verdict: emailScans.verdict,
-    riskScore: emailScans.riskScore,
-    confidence: emailScans.confidence,
-    createdAt: emailScans.createdAt
-  }).from(emailScans).orderBy(desc(emailScans.createdAt)).limit(limit);
+  return emailScans.slice(0, limit);
 }
 
 // server/_core/cookies.ts
@@ -313,7 +193,7 @@ function getSessionCookieOptions(req) {
     httpOnly: true,
     path: "/",
     sameSite: isSecureRequest(req) ? "none" : "lax",
-    secure: isSecureRequest(req)
+    secure: process.env.NODE_ENV === "production" || isSecureRequest(req)
   };
 }
 
@@ -338,12 +218,6 @@ var GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInf
 var OAuthService = class {
   constructor(client) {
     this.client = client;
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
-      );
-    }
   }
   decodeState(state2) {
     return decodeOAuthState(state2).redirectUri;
@@ -433,6 +307,7 @@ var SDKServer = class {
   }
   getSessionSecret() {
     const secret = ENV.cookieSecret;
+    if (!secret.trim()) throw new Error("JWT_SECRET is required to sign sessions");
     return new TextEncoder().encode(secret);
   }
   /**
@@ -463,16 +338,16 @@ var SDKServer = class {
   }
   async verifySession(cookieValue) {
     if (!cookieValue) {
-      console.warn("[Auth] Missing session cookie");
       return null;
     }
     try {
       const secretKey = this.getSessionSecret();
       const { payload } = await jwtVerify(cookieValue, secretKey, {
-        algorithms: ["HS256"]
+        algorithms: ["HS256"],
+        requiredClaims: ["exp"]
       });
       const { openId, appId, name } = payload;
-      if (!isNonEmptyString(openId) || !isNonEmptyString(appId) || !isNonEmptyString(name)) {
+      if (!isNonEmptyString(openId) || !isNonEmptyString(appId) || typeof name !== "string" || appId !== (ENV.appId || (demoAuthEnabled ? "fraud-sentinel-demo" : ""))) {
         console.warn("[Auth] Session payload missing required fields");
         return null;
       }
@@ -506,14 +381,10 @@ var SDKServer = class {
     };
   }
   async authenticateRequest(req) {
-    const authHeader = req.headers.authorization;
-    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
-      const supabaseUser = await this.authenticateSupabaseToken(authHeader.slice(7));
-      if (supabaseUser) return supabaseUser;
-    }
     const cookies = this.parseCookies(req.headers.cookie);
     let sessionToken = cookies.get(COOKIE_NAME);
     if (!sessionToken) {
+      const authHeader = req.headers.authorization;
       if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
         sessionToken = authHeader.slice(7);
       }
@@ -532,12 +403,13 @@ var SDKServer = class {
     }
     const sessionUserId = session.openId;
     if (sessionUserId === "demo-fraud-sentinel") {
+      if (!demoAuthEnabled) throw ForbiddenError("Demo authentication is disabled");
       const now = /* @__PURE__ */ new Date();
       return {
         id: 0,
         openId: sessionUserId,
         name: "Demo Analyst",
-        email: process.env.DEMO_AUTH_EMAIL ?? "demo@fraudsentinel.local",
+        email: process.env.DEMO_AUTH_EMAIL ?? null,
         loginMethod: "demo",
         role: "user",
         createdAt: now,
@@ -550,6 +422,7 @@ var SDKServer = class {
     if (!user) {
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
+        if (userInfo.openId !== sessionUserId) throw ForbiddenError("Identity mismatch");
         await upsertUser({
           openId: userInfo.openId,
           name: userInfo.name || null,
@@ -559,11 +432,11 @@ var SDKServer = class {
         });
         user = await getUserByOpenId(userInfo.openId);
       } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
+        console.error("[Auth] Failed to sync user from OAuth");
         throw ForbiddenError("Failed to sync user info");
       }
     }
-    if (!user) {
+    if (!user || user.openId !== sessionUserId) {
       throw ForbiddenError("User not found");
     }
     await upsertUser({
@@ -571,38 +444,6 @@ var SDKServer = class {
       lastSignedIn: signedInAt
     });
     return user;
-  }
-  async authenticateSupabaseToken(token) {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !supabaseKey) return null;
-    try {
-      const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-        headers: {
-          apikey: supabaseKey,
-          Authorization: `Bearer ${token}`
-        }
-      });
-      if (!response.ok) return null;
-      const userInfo = await response.json();
-      if (!userInfo.id || !userInfo.email || !userInfo.email_confirmed_at) {
-        throw ForbiddenError("A confirmed Supabase email is required");
-      }
-      await upsertUser({
-        openId: userInfo.id,
-        name: userInfo.user_metadata?.full_name ?? userInfo.user_metadata?.name ?? null,
-        email: userInfo.email,
-        loginMethod: "supabase",
-        lastSignedIn: /* @__PURE__ */ new Date()
-      });
-      const user = await getUserByOpenId(userInfo.id);
-      if (!user) throw ForbiddenError("Supabase user could not be synchronized");
-      return user;
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("confirmed Supabase")) throw error;
-      console.warn("[Auth] Supabase token validation failed:", error instanceof Error ? error.message : error);
-      return null;
-    }
   }
 };
 var CRON_OPEN_ID_PREFIX = "cron_";
@@ -666,7 +507,7 @@ function registerOAuthRoutes(app2) {
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       res.redirect(302, "/");
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
+      console.error("[OAuth] Callback failed");
       res.status(500).json({ error: "OAuth callback failed" });
     }
   });
@@ -675,6 +516,12 @@ function registerOAuthRoutes(app2) {
 // server/_core/storageProxy.ts
 function registerStorageProxy(app2) {
   app2.get("/manus-storage/*", async (req, res) => {
+    try {
+      await sdk.authenticateRequest(req);
+    } catch {
+      res.sendStatus(401);
+      return;
+    }
     const key = req.params[0];
     if (!key) {
       res.status(400).send("Missing storage key");
@@ -691,11 +538,10 @@ function registerStorageProxy(app2) {
       );
       forgeUrl.searchParams.set("path", key);
       const forgeResp = await fetch(forgeUrl, {
-        headers: { Authorization: "Bearer " + ENV.forgeApiKey }
+        headers: { Authorization: `Bearer ${ENV.forgeApiKey}` }
       });
       if (!forgeResp.ok) {
-        const body = await forgeResp.text().catch(() => "");
-        console.error(`[StorageProxy] forge error: ${forgeResp.status} ${body}`);
+        console.error(`[StorageProxy] forge error: ${forgeResp.status}`);
         res.status(502).send("Storage backend error");
         return;
       }
@@ -823,10 +669,10 @@ var requireUser = t.middleware(async (opts) => {
   });
 });
 var protectedProcedure = t.procedure.use(requireUser);
-var adminProcedure = t.procedure.use(
+var adminProcedure = protectedProcedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
-    if (!ctx.user || ctx.user.role !== "admin") {
+    if (ctx.user?.role !== "admin") {
       throw new TRPCError2({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
     return next({
@@ -1283,6 +1129,8 @@ function mlopsHealth() {
 // server/link-detector.ts
 import dns from "node:dns/promises";
 import net from "node:net";
+import http from "node:http";
+import https from "node:https";
 
 // server/reputation-data.ts
 import fs2 from "node:fs";
@@ -1310,11 +1158,11 @@ function isPrivateIpv4(address) {
   const octets = address.split(".").map(Number);
   if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return true;
   const [first, second] = octets;
-  return first === 0 || first === 10 || first === 127 || first === 169 && second === 254 || first === 172 && second >= 16 && second <= 31 || first === 192 && second === 168 || first >= 224;
+  return address === "168.63.129.16" || first === 100 && second >= 64 && second <= 127 || first === 0 || first === 10 || first === 127 || first === 169 && second === 254 || first === 172 && second >= 16 && second <= 31 || first === 192 && second === 168 || first >= 224;
 }
 function isPrivateIpv6(address) {
   const normalized = address.toLowerCase();
-  return normalized === "::1" || normalized === "::" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb");
+  return !/^[23][0-9a-f]{3}:/.test(normalized) || normalized.startsWith("2002:") || normalized.startsWith("2001:0:") || normalized.startsWith("2001::");
 }
 function isBlockedAddress(address) {
   return net.isIP(address) === 4 ? isPrivateIpv4(address) : net.isIP(address) === 6 ? isPrivateIpv6(address) : true;
@@ -1349,19 +1197,38 @@ async function lookupHost(hostname) {
     return { status: code === "ENOTFOUND" || code === "EAI_NONAME" ? "DOMAIN_DOES_NOT_RESOLVE" : "DNS_LOOKUP_FAILED", addresses: [] };
   }
 }
+function headAtAddress(url, address) {
+  const transport = url.protocol === "https:" ? https : http;
+  return new Promise((resolve, reject) => {
+    const req = transport.request(url, {
+      method: "HEAD",
+      agent: false,
+      family: net.isIP(address),
+      lookup: (_host, _options, callback) => callback(null, address, net.isIP(address)),
+      signal: AbortSignal.timeout(timeoutMs)
+    }, (res) => {
+      res.resume();
+      resolve({ status: res.statusCode ?? 0, location: res.headers.location });
+    });
+    req.once("error", reject);
+    req.end();
+  });
+}
 async function checkReachability(url, addresses) {
   if (!addresses.length || addresses.some(isBlockedAddress)) return { status: "BLOCKED", httpStatus: null };
   let current = url;
+  let address = addresses[0];
   for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
     try {
-      const response = await fetch(current, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+      const response = await headAtAddress(current, address);
       if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get("location");
+        const location = response.location;
         if (!location || redirect === maxRedirects) return { status: "INCONCLUSIVE", httpStatus: response.status };
         const next = new URL(location, current);
-        if (!supportedProtocols.has(next.protocol)) return { status: "BLOCKED", httpStatus: response.status };
+        if (next.username || next.password || !supportedProtocols.has(next.protocol)) return { status: "BLOCKED", httpStatus: response.status };
         const nextLookup = await lookupHost(next.hostname);
         if (nextLookup.status !== "DOMAIN_RESOLVES" || nextLookup.addresses.some(isBlockedAddress)) return { status: "BLOCKED", httpStatus: response.status };
+        address = nextLookup.addresses[0];
         current = next;
         continue;
       }
@@ -1491,7 +1358,6 @@ async function analyzeLink(input) {
 }
 
 // server/email-detector.ts
-import dns2 from "node:dns/promises";
 var freeMailDomains = /* @__PURE__ */ new Set([
   "gmail.com",
   "googlemail.com",
@@ -1507,55 +1373,8 @@ var credentialPattern = /password|otp|one[- ]time password|verification code|log
 var hiringPattern = /hired|job offer|selected|joining|interview|recruit|salary|employment|offer letter/i;
 var shortenerPattern = /(?:https?:\/\/)?(?:bit\.ly|tinyurl\.com|t\.co|cutt\.ly|rb\.gy)\b/i;
 var emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
-var dnsTimeoutMs = 2500;
 function addSignal2(signals, label, detail, tone) {
   signals.push({ label, detail, tone });
-}
-async function withDnsTimeout(operation) {
-  return Promise.race([
-    operation,
-    new Promise((_, reject) => setTimeout(() => reject(new Error("DNS lookup timeout")), dnsTimeoutMs))
-  ]);
-}
-async function checkEmailDomain(domain) {
-  const checks = {
-    mx: "INCONCLUSIVE",
-    spf: "INCONCLUSIVE",
-    dmarc: "INCONCLUSIVE"
-  };
-  try {
-    checks.mx = (await withDnsTimeout(dns2.resolveMx(domain))).length ? "PASS" : "FAIL";
-  } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    checks.mx = code === "ENODATA" || code === "ENOTFOUND" ? "FAIL" : "INCONCLUSIVE";
-  }
-  try {
-    const records2 = await withDnsTimeout(dns2.resolveTxt(domain));
-    checks.spf = records2.some((record) => record.join("").toLowerCase().startsWith("v=spf1")) ? "PASS" : "FAIL";
-  } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    checks.spf = code === "ENODATA" || code === "ENOTFOUND" ? "FAIL" : "INCONCLUSIVE";
-  }
-  try {
-    const records2 = await withDnsTimeout(dns2.resolveTxt(`_dmarc.${domain}`));
-    checks.dmarc = records2.some((record) => record.join("").toLowerCase().startsWith("v=dmarc1")) ? "PASS" : "FAIL";
-  } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    checks.dmarc = code === "ENODATA" || code === "ENOTFOUND" ? "FAIL" : "INCONCLUSIVE";
-  }
-  return checks;
-}
-function addDomainCheckSignals(signals, checks) {
-  const checksToReport = [
-    ["MX record", checks.mx, "A receiving mail server is published for this domain.", "No receiving mail server was found for this domain."],
-    ["SPF policy", checks.spf, "The domain publishes an SPF policy.", "The domain does not publish an SPF policy."],
-    ["DMARC policy", checks.dmarc, "The domain publishes a DMARC policy.", "The domain does not publish a DMARC policy."]
-  ];
-  for (const [label, status, passDetail, failDetail] of checksToReport) {
-    if (status === "PASS") addSignal2(signals, `Live ${label} check`, passDetail, "positive");
-    else if (status === "FAIL") addSignal2(signals, `Live ${label} check`, failDetail, label === "MX record" ? "danger" : "warning");
-    else addSignal2(signals, `Live ${label} check`, "The DNS provider did not return a definitive result within the safety timeout.", "warning");
-  }
 }
 async function analyzeEmail(senderInput, subject, content, options) {
   const sender = senderInput.trim().toLowerCase();
@@ -1576,7 +1395,6 @@ async function analyzeEmail(senderInput, subject, content, options) {
       recommendation: "Do not reply or open attachments. Confirm the sender through an official website.",
       links: [],
       missingEvidence: ["A valid sender address is required for domain assessment."],
-      domainChecks: { mx: "INCONCLUSIVE", spf: "INCONCLUSIVE", dmarc: "INCONCLUSIVE" },
       disclaimer: "This is a pattern-based demonstration and does not contact the sender or verify mailbox ownership."
     };
   }
@@ -1586,11 +1404,6 @@ async function analyzeEmail(senderInput, subject, content, options) {
   const senderAlias = sender.split("@")[0];
   const mentionedOrganization = ["Infosys", "Google", "Microsoft", "Amazon", "Apple", "Accenture"].find((name) => new RegExp(`\\b${name}\\b`, "i").test(`${senderAlias} ${combined}`));
   let riskScore = 0;
-  const domainChecks = await checkEmailDomain(senderDomain);
-  addDomainCheckSignals(signals, domainChecks);
-  if (domainChecks.mx === "FAIL") riskScore += 25;
-  if (domainChecks.spf === "FAIL") riskScore += 8;
-  if (domainChecks.dmarc === "FAIL") riskScore += 8;
   if (organizationEntry) {
     addSignal2(signals, "Organization domain matched", `${organizationEntry[0]} uses ${senderDomain} in this demo directory.`, "positive");
   } else if (freeMailDomains.has(senderDomain)) {
@@ -1635,17 +1448,6 @@ async function analyzeEmail(senderInput, subject, content, options) {
     riskScore += 25;
     addSignal2(signals, "Reply-To mismatch", "Replies would be directed to an address different from the displayed sender.", "danger");
   }
-  if (options?.headers) {
-    const normalizedHeaders = options.headers.toLowerCase();
-    const authFailures = ["spf=fail", "dkim=fail", "dmarc=fail", "dmarc=none"].filter((value) => normalizedHeaders.includes(value));
-    const authPasses = ["spf=pass", "dkim=pass", "dmarc=pass"].filter((value) => normalizedHeaders.includes(value));
-    if (authFailures.length) {
-      riskScore += Math.min(35, authFailures.length * 12);
-      addSignal2(signals, "Authentication header failure", `${authFailures.join(", ")} was found in the supplied headers.`, "danger");
-    } else if (authPasses.length) {
-      addSignal2(signals, "Authentication header result", `${authPasses.join(", ")} was found in the supplied headers; verify the headers came from the receiving mail system.`, "positive");
-    }
-  }
   if (options?.attachments?.length) {
     const riskyAttachment = options.attachments.some((name) => /\.(exe|scr|js|vbs|bat|cmd|ps1|iso|zip)$/i.test(name));
     if (riskyAttachment) {
@@ -1680,24 +1482,20 @@ async function analyzeEmail(senderInput, subject, content, options) {
     recommendation,
     links,
     missingEvidence,
-    domainChecks,
-    disclaimer: "This is a live DNS and content assessment. It does not verify mailbox ownership, prove that a sender controlled the message, or replace checks performed by the receiving mail provider."
+    disclaimer: "This is a pattern-based demonstration and does not contact the sender or verify mailbox ownership."
   };
 }
 
 // server/routers.ts
 var riskFilter = z2.enum(["ALL", "FRAUD", "LEGITIMATE", "HIGH", "MEDIUM", "LOW"]).default("ALL");
 var DEMO_OPEN_ID = "demo-fraud-sentinel";
-var DEMO_EMAIL = process.env.DEMO_AUTH_EMAIL ?? "demo@fraudsentinel.local";
-var DEMO_PASSWORD = process.env.DEMO_AUTH_PASSWORD ?? "SentinelDemo123!";
-var demoAuthEnabled = process.env.DEMO_AUTH_ENABLED === "true";
 var appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
     demoConfig: publicProcedure.query(() => ({
       enabled: demoAuthEnabled,
-      email: demoAuthEnabled ? DEMO_EMAIL : null
+      email: demoAuthEnabled ? process.env.DEMO_AUTH_EMAIL : null
     })),
     demoSignIn: publicProcedure.input(z2.object({
       email: z2.string().trim().email(),
@@ -1706,7 +1504,7 @@ var appRouter = router({
       if (!demoAuthEnabled) {
         throw new TRPCError3({ code: "FORBIDDEN", message: "Demo authentication is disabled" });
       }
-      if (input.email.toLowerCase() !== DEMO_EMAIL.toLowerCase() || input.password !== DEMO_PASSWORD) {
+      if (input.email.toLowerCase() !== process.env.DEMO_AUTH_EMAIL?.toLowerCase() || input.password !== process.env.DEMO_AUTH_PASSWORD) {
         throw new TRPCError3({ code: "UNAUTHORIZED", message: "Invalid demo credentials" });
       }
       const sessionToken = await sdk.signSession({
@@ -1726,30 +1524,21 @@ var appRouter = router({
       return { success: true };
     })
   }),
-  health: publicProcedure.query(async () => {
-    const database = await checkDatabaseConnection();
-    return {
-      api: "connected",
-      database: database.status,
-      model: "loaded",
-      pipeline: state.pipeline.status.toLowerCase(),
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-  }),
+  health: publicProcedure.query(async () => ({ api: "connected", database: (await checkDatabaseConnection()).status, model: "loaded", pipeline: state.pipeline.status.toLowerCase(), updatedAt: (/* @__PURE__ */ new Date()).toISOString() })),
   datasets: router({
-    list: publicProcedure.query(() => listDatasets())
+    list: protectedProcedure.query(() => listDatasets())
   }),
   linkDetection: router({
-    history: publicProcedure.query(() => listUrlScans()),
-    analyze: publicProcedure.input(z2.object({ url: z2.string().trim().min(1).max(2048) })).mutation(async ({ input }) => {
+    history: protectedProcedure.query(() => listUrlScans()),
+    analyze: protectedProcedure.input(z2.object({ url: z2.string().trim().min(1).max(2048) })).mutation(async ({ input }) => {
       const result = await analyzeLink(input.url);
       await saveUrlScan(result);
       return result;
     })
   }),
   emailDetection: router({
-    history: publicProcedure.query(() => listEmailScans()),
-    analyze: publicProcedure.input(z2.object({
+    history: protectedProcedure.query(() => listEmailScans()),
+    analyze: protectedProcedure.input(z2.object({
       sender: z2.string().trim().min(1).max(320),
       subject: z2.string().max(300),
       content: z2.string().max(2e4),
@@ -1763,17 +1552,17 @@ var appRouter = router({
     })
   }),
   mlops: router({
-    status: publicProcedure.query(() => mlopsStatus()),
-    health: publicProcedure.query(() => mlopsHealth()),
-    train: publicProcedure.input(z2.object({ datasetName: z2.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional() }).optional()).mutation(({ input }) => trainModel(input?.datasetName)),
-    deploy: publicProcedure.input(z2.object({ version: z2.string() })).mutation(({ input }) => deployModel(input.version)),
-    rollback: publicProcedure.mutation(() => rollbackModel())
+    status: protectedProcedure.query(() => mlopsStatus()),
+    health: protectedProcedure.query(() => mlopsHealth()),
+    train: adminProcedure.input(z2.object({ datasetName: z2.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional() }).optional()).mutation(({ input }) => trainModel(input?.datasetName)),
+    deploy: adminProcedure.input(z2.object({ version: z2.string() })).mutation(({ input }) => deployModel(input.version)),
+    rollback: adminProcedure.mutation(() => rollbackModel())
   }),
   dashboard: router({
-    summary: publicProcedure.query(() => summary())
+    summary: protectedProcedure.query(() => summary())
   }),
   transactions: router({
-    list: publicProcedure.input(z2.object({ search: z2.string().default(""), filter: riskFilter, page: z2.number().int().min(1).default(1), pageSize: z2.number().int().min(5).max(50).default(12) })).query(({ input }) => {
+    list: protectedProcedure.input(z2.object({ search: z2.string().default(""), filter: riskFilter, page: z2.number().int().min(1).default(1), pageSize: z2.number().int().min(5).max(50).default(12) })).query(({ input }) => {
       const all = state.transactions.slice(0, state.pipeline.processed).filter((row) => {
         const search = input.search.toLowerCase();
         const matchesSearch = !search || [row.id, row.customerId, row.merchantId, row.merchantName].some((value) => value.toLowerCase().includes(search));
@@ -1783,8 +1572,8 @@ var appRouter = router({
       const start = (input.page - 1) * input.pageSize;
       return { rows: all.slice(start, start + input.pageSize), total: all.length, page: input.page, pageSize: input.pageSize };
     }),
-    get: publicProcedure.input(z2.object({ id: z2.string() })).query(({ input }) => getTransaction(input.id) ?? null),
-    predict: publicProcedure.input(z2.object({ amount: z2.number().positive(), paymentMethod: z2.string(), isNewDevice: z2.boolean(), isInternational: z2.boolean(), velocity1h: z2.number().min(0), failedAttempts: z2.number().min(0), datasetName: z2.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional(), features: z2.record(z2.string(), z2.union([z2.number(), z2.string(), z2.boolean()])).optional() })).mutation(({ input }) => {
+    get: protectedProcedure.input(z2.object({ id: z2.string() })).query(({ input }) => getTransaction(input.id) ?? null),
+    predict: protectedProcedure.input(z2.object({ amount: z2.number().positive(), paymentMethod: z2.string(), isNewDevice: z2.boolean(), isInternational: z2.boolean(), velocity1h: z2.number().min(0), failedAttempts: z2.number().min(0), datasetName: z2.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional(), features: z2.record(z2.string(), z2.union([z2.number(), z2.string(), z2.boolean()])).optional() })).mutation(({ input }) => {
       const result = predictWithDataset(input.datasetName ?? defaultDataset(), input);
       const probability = result.probability;
       const riskLevel2 = classify(probability);
@@ -1792,25 +1581,25 @@ var appRouter = router({
     })
   }),
   pipeline: router({
-    status: publicProcedure.query(() => state.pipeline),
-    start: publicProcedure.input(z2.object({ speed: z2.number().int().min(1).max(10).default(5) })).mutation(({ input }) => {
+    status: protectedProcedure.query(() => state.pipeline),
+    start: adminProcedure.input(z2.object({ speed: z2.number().int().min(1).max(10).default(5) })).mutation(({ input }) => {
       state.pipeline.status = "RUNNING";
       state.pipeline.speed = input.speed;
       state.pipeline.startedAt = state.pipeline.startedAt ?? (/* @__PURE__ */ new Date()).toISOString();
       addAudit("Pipeline started", "pipeline", `Transaction stream running at ${input.speed} tx/sec`);
       return state.pipeline;
     }),
-    pause: publicProcedure.mutation(() => {
+    pause: adminProcedure.mutation(() => {
       state.pipeline.status = "PAUSED";
       addAudit("Pipeline paused", "pipeline", `Stream paused at transaction ${state.pipeline.processed}`);
       return state.pipeline;
     }),
-    stop: publicProcedure.mutation(() => {
+    stop: adminProcedure.mutation(() => {
       state.pipeline.status = "STOPPED";
       addAudit("Pipeline stopped", "pipeline", `Stream stopped at transaction ${state.pipeline.processed}`);
       return state.pipeline;
     }),
-    step: publicProcedure.mutation(() => {
+    step: adminProcedure.mutation(() => {
       if (state.pipeline.cursor < state.transactions.length) {
         const next = state.transactions[state.pipeline.cursor];
         state.pipeline.cursor += 1;
@@ -1821,43 +1610,43 @@ var appRouter = router({
     })
   }),
   monitoring: router({
-    overview: publicProcedure.query(() => monitoring()),
-    drift: publicProcedure.query(() => monitoring().drift),
-    performance: publicProcedure.query(() => monitoring().metrics)
+    overview: protectedProcedure.query(() => monitoring()),
+    drift: protectedProcedure.query(() => monitoring().drift),
+    performance: protectedProcedure.query(() => monitoring().metrics)
   }),
   models: router({
-    list: publicProcedure.query(() => models()),
-    get: publicProcedure.input(z2.object({ version: z2.string() })).query(({ input }) => models().find((model) => model.version === input.version) ?? null),
-    retrain: publicProcedure.input(z2.object({ datasetName: z2.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional() }).optional()).mutation(({ input }) => trainModel(input?.datasetName)),
-    promote: publicProcedure.input(z2.object({ version: z2.string() })).mutation(({ input }) => deployModel(input.version))
+    list: protectedProcedure.query(() => models()),
+    get: protectedProcedure.input(z2.object({ version: z2.string() })).query(({ input }) => models().find((model) => model.version === input.version) ?? null),
+    retrain: adminProcedure.input(z2.object({ datasetName: z2.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional() }).optional()).mutation(({ input }) => trainModel(input?.datasetName)),
+    promote: adminProcedure.input(z2.object({ version: z2.string() })).mutation(({ input }) => deployModel(input.version))
   }),
   alerts: router({
-    list: publicProcedure.input(z2.object({ status: z2.enum(["ALL", "OPEN", "ACKNOWLEDGED", "RESOLVED"]).default("ALL") })).query(({ input }) => input.status === "ALL" ? state.alerts : state.alerts.filter((alert) => alert.status === input.status)),
-    acknowledge: publicProcedure.input(z2.object({ id: z2.string() })).mutation(({ input }) => {
+    list: protectedProcedure.input(z2.object({ status: z2.enum(["ALL", "OPEN", "ACKNOWLEDGED", "RESOLVED"]).default("ALL") })).query(({ input }) => input.status === "ALL" ? state.alerts : state.alerts.filter((alert) => alert.status === input.status)),
+    acknowledge: protectedProcedure.input(z2.object({ id: z2.string() })).mutation(({ input }) => {
       const alert = state.alerts.find((item) => item.id === input.id);
       if (alert) alert.status = "ACKNOWLEDGED";
       addAudit("Alert acknowledged", input.id, "Alert moved to acknowledged state");
       return alert ?? null;
     }),
-    resolve: publicProcedure.input(z2.object({ id: z2.string() })).mutation(({ input }) => {
+    resolve: protectedProcedure.input(z2.object({ id: z2.string() })).mutation(({ input }) => {
       const alert = state.alerts.find((item) => item.id === input.id);
       if (alert) alert.status = "RESOLVED";
       addAudit("Alert resolved", input.id, "Alert marked resolved by operations");
       return alert ?? null;
     })
   }),
-  experiments: router({ list: publicProcedure.query(() => [
+  experiments: router({ list: protectedProcedure.query(() => [
     { id: "EXP-024", model: "Random Forest", dataset: "sentinel-synthetic-2k", featureSet: "risk-v4", timestamp: "2026-09-18T11:20:00.000Z", status: "Registered", metrics: "F1 0.87 \xB7 PR-AUC 0.88", params: "240 trees \xB7 balanced weights" },
     { id: "EXP-023", model: "Logistic Regression", dataset: "sentinel-synthetic-2k", featureSet: "risk-v4", timestamp: "2026-09-10T14:05:00.000Z", status: "Reference", metrics: "F1 0.76 \xB7 PR-AUC 0.77", params: "C=1.0 \xB7 balanced weights" },
     { id: "EXP-021", model: "Random Forest", dataset: "sentinel-synthetic-2k", featureSet: "risk-v3", timestamp: "2026-09-04T08:40:00.000Z", status: "Archived", metrics: "F1 0.84 \xB7 PR-AUC 0.84", params: "160 trees \xB7 balanced weights" }
   ]) }),
-  audit: router({ list: publicProcedure.query(() => state.audit) }),
-  settings: router({ get: publicProcedure.query(() => state.settings), update: publicProcedure.input(z2.object({ lowThreshold: z2.number().min(0).max(1), highThreshold: z2.number().min(0).max(1), latencyThreshold: z2.number().min(50).max(5e3), driftThreshold: z2.number().min(0).max(1) })).mutation(({ input }) => {
+  audit: router({ list: protectedProcedure.query(() => state.audit) }),
+  settings: router({ get: protectedProcedure.query(() => state.settings), update: adminProcedure.input(z2.object({ lowThreshold: z2.number().min(0).max(1), highThreshold: z2.number().min(0).max(1), latencyThreshold: z2.number().min(50).max(5e3), driftThreshold: z2.number().min(0).max(1) })).mutation(({ input }) => {
     state.settings = input;
     addAudit("Threshold changed", "risk-engine", `High risk ${input.highThreshold.toFixed(2)} \xB7 latency ${input.latencyThreshold} ms`);
     return state.settings;
   }) }),
-  metrics: publicProcedure.query(() => getMetrics())
+  metrics: protectedProcedure.query(() => getMetrics())
 });
 
 // server/_core/context.ts
@@ -1878,6 +1667,7 @@ async function createContext(opts) {
 // server/_core/app.ts
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 function createApp() {
+  validateEnvironment();
   const app2 = express();
   app2.disable("x-powered-by");
   const clientOrigins = new Set(
@@ -1901,6 +1691,10 @@ function createApp() {
   app2.use(express.json({ limit: "50mb" }));
   app2.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app2);
+  app2.use("/api", (_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
   registerOAuthRoutes(app2);
   app2.get("/api/health", (_req, res) => {
     res.json({ status: "ok", service: "fraud-sentinel-backend" });

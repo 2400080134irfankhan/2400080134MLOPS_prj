@@ -49,6 +49,12 @@ describe("trust signal analyzers", () => {
     expect(result.verdict).toBe("MALICIOUS");
   });
 
+  it.each(["100.64.0.1", "168.63.129.16"])("skips connections to reserved address %s", async address => {
+    const result = await analyzeLink("http://" + address);
+    expect(result.reachability).toBe("NOT_CHECKED");
+    expect(result.dnsStatus).toBe("DNS_RESULT_INCONCLUSIVE");
+  });
+
   it("rejects non-web schemes instead of treating them as ordinary links", async () => {
     const result = await analyzeLink("javascript:alert(1)");
     expect(result.verdict).toBe("INCONCLUSIVE");

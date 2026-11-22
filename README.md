@@ -92,10 +92,11 @@ access actions. Password recovery remains managed by the configured identity
 provider; the login screen does not claim to send a local reset email.
 
 For a local product demonstration before OAuth is configured, start the server
-with `DEMO_AUTH_ENABLED=true`. The preview login then exposes the clearly labeled
-demo account `demo@fraudsentinel.local` / `SentinelDemo123!`. Demo sessions are
-short-lived and use the same signed session validation path, but demo mode is
-not production authentication and must remain disabled in deployed environments.
+with `pnpm dev`, `DEMO_AUTH_ENABLED=true`, and privately chosen values for
+`DEMO_AUTH_EMAIL`, `DEMO_AUTH_PASSWORD`, and `JWT_SECRET` in the ignored
+`.env` file. The demo identity has the regular user role.
+
+See [Azure deployment and access control](AZURE_DEPLOYMENT.md) for production settings and release checks.
 
 ## Testing
 

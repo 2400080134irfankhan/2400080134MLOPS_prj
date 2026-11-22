@@ -2,12 +2,9 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy } from "./storageProxy";
-import { appRouter } from "../routers";
-import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import path from "node:path";
+import { access } from "node:fs/promises";
+import { createApp } from "./app";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -29,73 +26,28 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
-  const app = express();
+  const app = createApp();
   const server = createServer(app);
-  const clientOrigin = process.env.CLIENT_ORIGIN;
-  if (clientOrigin) {
-    app.use((req, res, next) => {
-      if (req.headers.origin === clientOrigin) {
-        res.setHeader("Access-Control-Allow-Origin", clientOrigin);
-        res.setHeader("Access-Control-Allow-Credentials", "true");
-        res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-        res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      }
-      if (req.method === "OPTIONS") {
-        res.sendStatus(204);
-        return;
-      }
-      next();
-    });
+  const preferredPort = Number(process.env.PORT ?? 3000);
+  if (!Number.isInteger(preferredPort) || preferredPort < 1 || preferredPort > 65535) {
+    throw new Error("PORT must be an integer from 1 through 65535");
   }
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
-  // tRPC API
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    })
-  );
-  app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", service: "fraud-sentinel-backend" });
-  });
-  app.use("/api", (_req, res) => {
-    res.status(404).json({ error: "API route not found" });
-  });
-  // development mode uses Vite, production mode uses static files
+  let port = preferredPort;
   if (process.env.NODE_ENV === "development") {
+    const { setupVite } = await import("./vite");
     await setupVite(app, server);
+    port = await findAvailablePort(preferredPort);
   } else {
-    serveStatic(app);
+    const publicDir = path.join(import.meta.dirname, "public");
+    const index = path.join(publicDir, "index.html");
+    await access(index);
+    app.use(express.static(publicDir));
+    app.get("*", (_req, res) => res.sendFile(index));
   }
-
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
-
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
-
-  const listen = (candidate: number) => {
-    const handleError = (error: NodeJS.ErrnoException) => {
-      server.removeListener("error", handleError);
-      if (error.code === "EADDRINUSE") {
-        listen(candidate + 1);
-        return;
-      }
-      throw error;
-    };
-    server.once("error", handleError);
-    server.listen(candidate, () => {
-      server.removeListener("error", handleError);
-      console.log(`Server running on http://localhost:${candidate}/`);
-    });
-  };
-  listen(port);
+  server.listen(port, () => console.log(`Listening on port ${port}`));
 }
 
-startServer().catch(console.error);
+startServer().catch(error => {
+  console.error("Startup failed:", error.message);
+  process.exitCode = 1;
+});

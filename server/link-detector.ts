@@ -1,5 +1,7 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import http from "node:http";
+import https from "node:https";
 import { getDomainRecord } from "./reputation-data";
 
 export type LinkVerdict = "MALICIOUS" | "SUSPICIOUS" | "UNREACHABLE" | "INCONCLUSIVE" | "NO_KNOWN_THREATS";
@@ -43,12 +45,14 @@ function isPrivateIpv4(address: string) {
   const octets = address.split(".").map(Number);
   if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) return true;
   const [first, second] = octets;
-  return first === 0 || first === 10 || first === 127 || (first === 169 && second === 254) || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168) || first >= 224;
+  return address === "168.63.129.16" || (first === 100 && second >= 64 && second <= 127) || first === 0 || first === 10 || first === 127 || (first === 169 && second === 254) || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168) || first >= 224;
 }
 
 function isPrivateIpv6(address: string) {
   const normalized = address.toLowerCase();
-  return normalized === "::1" || normalized === "::" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb");
+  // Accept native global unicast only. Exclude translation and transition ranges.
+  return !/^[23][0-9a-f]{3}:/.test(normalized) || normalized.startsWith("2002:")
+    || normalized.startsWith("2001:0:") || normalized.startsWith("2001::");
 }
 
 function isBlockedAddress(address: string) {
@@ -88,19 +92,38 @@ async function lookupHost(hostname: string) {
   }
 }
 
+function headAtAddress(url: URL, address: string): Promise<{ status: number; location?: string }> {
+  const transport = url.protocol === "https:" ? https : http;
+  // Keep the URL hostname for TLS and Host, but connect only to the vetted IP.
+  return new Promise((resolve, reject) => {
+    const req = transport.request(url, {
+      method: "HEAD", agent: false, family: net.isIP(address),
+      lookup: (_host, _options, callback) => callback(null, address, net.isIP(address)),
+      signal: AbortSignal.timeout(timeoutMs),
+    }, res => {
+      res.resume();
+      resolve({ status: res.statusCode ?? 0, location: res.headers.location });
+    });
+    req.once("error", reject);
+    req.end();
+  });
+}
+
 async function checkReachability(url: URL, addresses: string[]) {
   if (!addresses.length || addresses.some(isBlockedAddress)) return { status: "BLOCKED" as const, httpStatus: null };
   let current = url;
+  let address = addresses[0];
   for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
     try {
-      const response = await fetch(current, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+      const response = await headAtAddress(current, address);
       if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get("location");
+        const location = response.location;
         if (!location || redirect === maxRedirects) return { status: "INCONCLUSIVE" as const, httpStatus: response.status };
         const next = new URL(location, current);
-        if (!supportedProtocols.has(next.protocol)) return { status: "BLOCKED" as const, httpStatus: response.status };
+        if (next.username || next.password || !supportedProtocols.has(next.protocol)) return { status: "BLOCKED" as const, httpStatus: response.status };
         const nextLookup = await lookupHost(next.hostname);
         if (nextLookup.status !== "DOMAIN_RESOLVES" || nextLookup.addresses.some(isBlockedAddress)) return { status: "BLOCKED" as const, httpStatus: response.status };
+        address = nextLookup.addresses[0];
         current = next;
         continue;
       }

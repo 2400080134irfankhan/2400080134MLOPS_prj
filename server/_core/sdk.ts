@@ -6,7 +6,7 @@ import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
-import { ENV } from "./env";
+import { demoAuthEnabled, ENV } from "./env";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -29,14 +29,7 @@ const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
 
 class OAuthService {
-  constructor(private client: ReturnType<typeof axios.create>) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
-      );
-    }
-  }
+  constructor(private client: ReturnType<typeof axios.create>) {}
 
   private decodeState(state: string): string {
     return decodeOAuthState(state).redirectUri;
@@ -155,6 +148,7 @@ class SDKServer {
 
   private getSessionSecret() {
     const secret = ENV.cookieSecret;
+    if (!secret.trim()) throw new Error("JWT_SECRET is required to sign sessions");
     return new TextEncoder().encode(secret);
   }
 
@@ -200,7 +194,6 @@ class SDKServer {
     cookieValue: string | undefined | null
   ): Promise<{ openId: string; appId: string; name: string } | null> {
     if (!cookieValue) {
-      console.warn("[Auth] Missing session cookie");
       return null;
     }
 
@@ -208,13 +201,15 @@ class SDKServer {
       const secretKey = this.getSessionSecret();
       const { payload } = await jwtVerify(cookieValue, secretKey, {
         algorithms: ["HS256"],
+        requiredClaims: ["exp"],
       });
       const { openId, appId, name } = payload as Record<string, unknown>;
 
       if (
         !isNonEmptyString(openId) ||
         !isNonEmptyString(appId) ||
-        !isNonEmptyString(name)
+        typeof name !== "string" ||
+        appId !== (ENV.appId || (demoAuthEnabled ? "fraud-sentinel-demo" : ""))
       ) {
         console.warn("[Auth] Session payload missing required fields");
         return null;
@@ -287,12 +282,13 @@ class SDKServer {
 
     const sessionUserId = session.openId;
     if (sessionUserId === "demo-fraud-sentinel") {
+      if (!demoAuthEnabled) throw ForbiddenError("Demo authentication is disabled");
       const now = new Date();
       return {
         id: 0,
         openId: sessionUserId,
         name: "Demo Analyst",
-        email: process.env.DEMO_AUTH_EMAIL ?? "demo@fraudsentinel.local",
+        email: process.env.DEMO_AUTH_EMAIL ?? null,
         loginMethod: "demo",
         role: "user",
         createdAt: now,
@@ -307,6 +303,7 @@ class SDKServer {
     if (!user) {
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
+        if (userInfo.openId !== sessionUserId) throw ForbiddenError("Identity mismatch");
         await db.upsertUser({
           openId: userInfo.openId,
           name: userInfo.name || null,
@@ -316,12 +313,12 @@ class SDKServer {
         });
         user = await db.getUserByOpenId(userInfo.openId);
       } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
+        console.error("[Auth] Failed to sync user from OAuth");
         throw ForbiddenError("Failed to sync user info");
       }
     }
 
-    if (!user) {
+    if (!user || user.openId !== sessionUserId) {
       throw ForbiddenError("User not found");
     }
 

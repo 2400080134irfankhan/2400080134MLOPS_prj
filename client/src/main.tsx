@@ -5,7 +5,7 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
-import { startLogin } from "./const";
+import { resolveTrpcUrl } from "./lib/api";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -19,7 +19,7 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   if (!isUnauthorized) return;
 
-  startLogin();
+  window.location.assign("/login");
 };
 
 queryClient.getQueryCache().subscribe(event => {
@@ -41,7 +41,7 @@ queryClient.getMutationCache().subscribe(event => {
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: `${apiBaseUrl}/api/trpc`,
+      url: resolveTrpcUrl(apiBaseUrl),
       transformer: superjson,
       headers() {
         // Preview auto-login fallback: when the browser blocks iframe cookies
