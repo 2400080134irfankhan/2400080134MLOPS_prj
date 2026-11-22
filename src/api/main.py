@@ -33,8 +33,8 @@ def predict(transaction: Transaction):
         try:
             model = load_model(settings.model_path)
             MODEL_STATUS = "loaded"
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except FileNotFoundError:
+            raise HTTPException(status_code=503, detail="Model unavailable") from None
     started = time.perf_counter()
     REQUESTS.inc()
     probability = float(model.predict_proba(frame_from_transaction(transaction.model_dump()))[0, 1])
