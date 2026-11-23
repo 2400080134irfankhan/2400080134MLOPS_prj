@@ -1,0 +1,4 @@
+/drizzle/0000_soft_captain_midlands.sql -text
+/drizzle/0001_operational_storage.sql -text
+/drizzle/0002_scoring_version_snapshot.sql -text
+/drizzle/0003_model_artifacts.sql -text
