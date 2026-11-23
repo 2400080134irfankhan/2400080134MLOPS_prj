@@ -55,7 +55,7 @@ function isPrivateIpv6(address: string) {
     || normalized.startsWith("2001:0:") || normalized.startsWith("2001::");
 }
 
-function isBlockedAddress(address: string) {
+export function isBlockedAddress(address: string) {
   return net.isIP(address) === 4 ? isPrivateIpv4(address) : net.isIP(address) === 6 ? isPrivateIpv6(address) : true;
 }
 

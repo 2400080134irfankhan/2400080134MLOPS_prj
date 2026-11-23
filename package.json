@@ -12,6 +12,8 @@
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:local:init": "node scripts/init-local-mysql.mjs",
+    "db:cleanup-scores": "tsx scripts/cleanup-scores.ts",
+    "db:cleanup-scans": "tsx scripts/cleanup-scans.ts",
     "db:seed": "tsx scripts/seed-operational.ts",
     "db:verify": "tsx scripts/check-database.ts"
   },

@@ -232,8 +232,10 @@ export function addAudit(event: string, resource: string, details: string) {
   state.audit.unshift({ id: randomUUID(), timestamp: new Date().toISOString(), event, user: "Maya Chen", resource, details });
 }
 
-export function getMetrics() {
-  const rows = state.transactions.slice(0, state.pipeline.processed);
+type MetricRow = Pick<Transaction, "prediction" | "fraudProbability" | "processingTimeMs" | "isFraud">;
+type SummaryRow = MetricRow & Pick<Transaction, "hour" | "merchantCategory" | "paymentMethod" | "timestamp">;
+
+export function getMetrics(rows: MetricRow[] = state.transactions.slice(0, state.pipeline.processed)) {
   const fraud = rows.filter((row) => row.prediction === "FRAUD");
   const avgProbability = rows.reduce((sum, row) => sum + row.fraudProbability, 0) / Math.max(rows.length, 1);
   const latency = rows.map((row) => row.processingTimeMs).sort((a, b) => a - b);
@@ -255,9 +257,12 @@ export function getMetrics() {
   };
 }
 
-export function summary() {
-  const rows = state.transactions.slice(0, state.pipeline.processed);
-  const metrics = getMetrics();
+export function summary(
+  activeAlerts = state.alerts.filter(alert => alert.status !== "RESOLVED").length,
+  rows: SummaryRow[] = state.transactions.slice(0, state.pipeline.processed),
+  recentTransactions = state.transactions.slice(0, state.pipeline.processed).slice(-8).reverse(),
+) {
+  const metrics = getMetrics(rows);
   const dayBuckets = new Map<string, { total: number; fraud: number }>();
   rows.slice(-240).forEach((row) => {
     const day = new Date(row.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -286,8 +291,8 @@ export function summary() {
     distribution,
     latency: rows.slice(-80).map((row) => ({ time: new Date(row.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }), value: row.processingTimeMs })),
     modelPerformance: [{ metric: "Precision", current: metrics.precision, baseline: 0.84 }, { metric: "Recall", current: metrics.recall, baseline: 0.78 }, { metric: "F1", current: metrics.f1, baseline: 0.81 }, { metric: "PR-AUC", current: 0.88, baseline: 0.81 }],
-    recentTransactions: rows.slice(-8).reverse(),
-    activeAlerts: state.alerts.filter((alert) => alert.status !== "RESOLVED").length,
+    recentTransactions,
+    activeAlerts,
   };
 }
 
