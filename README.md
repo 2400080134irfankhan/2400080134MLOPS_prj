@@ -8,7 +8,7 @@ Fraud Sentinel is an operational dashboard for real-time payment fraud detection
 
 The dashboard includes a persistent operations shell with routes for Overview, Transactions, Link Detection, Email Verification, Pipeline, Monitoring, Models, Experiments, Alerts, Audit Logs, and Settings. The overview combines live KPI cards, transaction activity, risk probability bands, fraud by merchant category, system health, and a recent transaction feed. Transactions are searchable, filterable, paginated, and linked to an investigation view containing customer, merchant, device, location, engineered features, risk factors, model output, and processing timeline. Link Detection and Email Verification provide safe, static heuristics for suspicious URLs and sender/message patterns; they never open submitted links, contact senders, or claim mailbox ownership.
 
-The pipeline page can start, pause, and stop a sequential simulator at 1, 5, or 10 transactions per second. Monitoring exposes data-quality counters, model performance, latency, feature drift, and deployment thresholds. The model registry compares Random Forest and Logistic Regression metadata, supports retraining initiation, and records promotion actions. Alerts can be acknowledged or resolved. Settings changes are applied to the process state and recorded in the audit log.
+The pipeline page can start, pause, and stop a sequential simulator at 1, 5, or 10 transactions per second. Monitoring exposes data-quality counters, model performance, latency, feature drift, and deployment thresholds. The model registry compares Random Forest and Logistic Regression metadata, supports retraining initiation, and records promotion actions. Alerts can be acknowledged or resolved. Alert transitions and settings changes are committed to MySQL together with their audit events.
 
 ## Architecture
 
@@ -16,10 +16,30 @@ The project uses the supported Manus WebDev full-stack template:
 
 - React 19, TypeScript, Vite, Tailwind CSS 4, Wouter, and Recharts for the client.
 - Express and tRPC 11 for typed server procedures.
-- Drizzle/MySQL support supplied by the scaffold for future durable persistence and authenticated user records.
-- A deterministic TypeScript data layer in `server/fraud-data.ts` for the initial synthetic dataset and operational state. This keeps the preview self-contained and responsive while preserving clear seams for database-backed queries.
+- Drizzle/MySQL stores authenticated user records, alert status, audit history and settings.
+- A deterministic TypeScript data layer in `server/fraud-data.ts` for the initial synthetic dataset and operational state.
 
-The original brief requested FastAPI and PostgreSQL. This implementation uses the platform-supported server and database runtime instead so it can run in the attached WebDev environment without a second process or external database service. The server procedures retain the same product boundaries: transactions, predictions, pipeline control, monitoring, models, alerts, experiments, audit, settings, and health.
+The original brief requested FastAPI and PostgreSQL. This implementation uses the platform-supported server and database runtime instead so it can run in the attached WebDev environment with one Express backend and MySQL. The server procedures retain the same product boundaries: transactions, predictions, pipeline control, monitoring, models, alerts, experiments, audit, settings, and health.
+
+## Local MySQL with Docker Desktop
+
+From the repository root, start Docker Desktop in Linux container mode and run:
+
+```sh
+pnpm db:local:init
+docker compose -f compose.mysql.yml up -d --wait mysql
+pnpm db:migrate
+pnpm db:seed
+pnpm db:verify
+```
+
+The initializer generates separate application and root passwords in the ignored `.env` file and configures `DATABASE_URL` for the `fraud_app` account in the `fraud_sentinel` database. Running it again keeps the same credentials. Keep this file private and retain it while using the database volume. If port 3306 is occupied, set an available `MYSQL_PORT` in `.env` before initialization. Run these commands from a shell without overriding database environment variables.
+
+MySQL listens on the loopback interface. Its dedicated Compose project and named volume are independent of the Python/Kafka stack. Use `docker compose -f compose.mysql.yml stop mysql` to stop it while retaining data. The image uses the initialization passwords only when the volume is new. For an existing volume, coordinate password changes inside MySQL with changes to `.env`.
+
+`pnpm db:migrate` applies the existing journaled MySQL migrations. `pnpm db:verify` checks connectivity and queries the migrated users table through Drizzle. After starting or restarting `pnpm dev`, the database field at `/api/trpc/health` should read `connected`. The simpler `/api/health` endpoint checks the web process only. Development demo login bypasses the users table. Demo-authenticated analysts use the same MySQL-backed alert and audit procedures as OAuth users.
+
+The explicit `pnpm db:seed` command installs `operational-v1` in one MySQL transaction. Version 1 freezes the original relative fixture timestamps at a reference time of 2026-11-22 14:00 UTC. Stream positions are one-based. The existing threshold-change audit fixture carries the seed version and serves as the transaction's unique completion marker. A repeat run leaves subsequent operational changes untouched. Conflicting fixture IDs in an unmarked database cause a rollback; inspect the conflict before retrying. The web server does not seed on startup. Alert, audit and settings procedures use these seeded MySQL tables at runtime.
 
 ## Data and scoring
 
@@ -102,15 +122,28 @@ See [Azure deployment and access control](AZURE_DEPLOYMENT.md) for production se
 
 The test suite covers the scaffold authentication contract plus synthetic data population, required field quality, risk-band semantics, bounded metrics, and processed-record counts. Run the complete suite with `pnpm test`.
 
+Run `python scripts/test-mysql.py` with Docker, Node and pnpm available to run the full database suite. The script creates an isolated MySQL 8.4 container with a fresh anonymous volume, migrates two test databases, runs `pnpm test`, restarts MySQL, and compares all transaction, scoring and pipeline rows before and after the restart. It stops the disposable container on exit.
+
+For the MySQL HTTP integration tests, set `OPERATIONS_TEST_DATABASE_URL` to a freshly migrated, unseeded disposable loopback database named `fraud_sentinel_operations_test`. Run `pnpm test`. The suite seeds its own fixtures and installs a test-only trigger to verify transaction rollback. The earlier initializer tests use a separate `SEED_TEST_DATABASE_URL`.
+
 ## Runtime limitations
 
-Operational state is currently process-local and resets when the server restarts. The scaffold includes Drizzle/MySQL support, but the feature tables and durable seeding workflow from the larger FastAPI/PostgreSQL brief are not wired into this preview build. The current separation in `server/fraud-data.ts` and `server/routers.ts` is intentional: it provides a compact replacement point for durable transaction, prediction, alert, metric, and audit repositories.
+Signed-in users can read the latest ten URL or email scans from the past 90 days. History stores scan-time findings, the URL origin and the sender domain. Embedded links stay with the email. Reading history does not probe the network. Run `pnpm db:cleanup-scans` from the checkout with a maintenance account configured through `DATABASE_URL`. Schedule it daily to physically remove expired rows. MySQL determines the cutoff and preserves rows exactly 90 days old.
+
+MySQL persists URL and email scan history, alerts, audit events and settings across restarts. The dashboard's active-alert count and the model evaluation drift gate read these values from MySQL. Stream rows and manual scoring evidence are persisted separately. Run `pnpm db:cleanup-scores` daily with a maintenance account to remove scoring requests older than 90 days. It only deletes from `scoring_requests`. Apply migration 0002 before enabling manual scoring after a promotion. It preserves existing rows and stores the observed registry version independently of the mutable registry. Pipeline status, speed, first-start timestamp and progress come from MySQL `pipeline_state.id = 1`. Each control locks that row until its state update and actor audit commit. The cursor is the last processed one-based stream sequence. Restarting Node preserves it. Admin browser tabs drive automatic steps while running; multiple tabs can increase throughput. The explicit admin step also works while paused or stopped. Model versions, completed runs, release pointers, and verified scoring artifacts are durable in MySQL. Lists and metrics cover the processed prefix in stream order; direct ID lookup covers the full seeded stream.
 
 The frontend uses polling through tRPC for live refreshes. The original WebSocket contract is represented by the pipeline procedures and can be upgraded to a server-sent or WebSocket transport without changing page contracts.
 
 The trust-signal analyzers use a versioned in-repository organization/domain directory, deterministic pattern checks, bounded DNS lookups, and SSRF-blocked HTTP HEAD checks. They do not render pages, download content, contact senders, or verify mailbox ownership. They are not wired to an unverified third-party fraud feed or email provider. A production integration should add an authenticated provider with explicit licensing, rate limits, privacy controls, and a reviewable fallback; the typed tRPC procedures provide the seam for that integration.
 
-The MLOps lifecycle is currently process-local as well: it is an executable release-control simulation with deterministic metrics, not a replacement for a durable MLflow registry, feature store, stream processor, or external inference service. Persisting runs and active versions requires moving `server/mlops.ts` state behind the existing Drizzle database layer.
+### Node model lifecycle
+
+Apply the reviewed additive migration 0003 and run `pnpm db:register-model-artifacts` explicitly after backing up the database and approving cutover. Stop older Node workers before registration. On a fresh database only, initialize the approved fixtures first. Preserve the existing working database and its history. The command checks the active v1.2.0 baseline, captures three packaged feature-statistics scorers under one pinned SHA-256 manifest, and audits the binding atomically. Repeat registration verifies the identical binding. The v1.2.0 catalog metadata and reported historical metrics are retained: the capture establishes the observed Node implementation at cutover, not provenance for an original Random Forest binary. v1.1.0 and baseline-1 have no verified artifact. Rollback to an unbound version fails.
+
+Training refits the selected dataset deterministically from its packaged workbook. Evaluation uses the held-out split, a 0.5 evaluation threshold, and stepwise average precision for PR-AUC. The original metrics in the cutover snapshot remain historical. Existing performance and configured drift gates are retained; the drift gate is a threshold policy, not a live drift measurement. Re-fitting identical inputs yields a recorded rejection for an unchanged scorer. A completed candidate changes only its dataset entry. Eligible promotion and rollback switch complete manifests under a MySQL row lock. Scoring returns the registry version and the digest of the actual dataset payload executed. Runtime validation rejects unbound, incompatible or corrupt artifacts. Existing stream predictions and scoring history are never rewritten.
+
+Only completed synchronous training outcomes are persisted. There is no background recovery of interrupted fitting or request-level idempotency key. Python/FastAPI joblib inference, Kafka consumers and MLflow tracking remain independent of this Node release mechanism.
+
 
 ## Project map
 
