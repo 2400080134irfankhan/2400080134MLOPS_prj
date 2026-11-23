@@ -58,6 +58,10 @@ export type PipelineState = {
   speed: number;
 };
 
+// Version 1 freezes the original relative fixture timeline at the initial seed date.
+export const operationalSeedVersion = "operational-v1";
+export const fixtureEpoch = Date.parse("2026-11-22T14:00:00.000Z");
+
 const categories = ["Online Retail", "Travel", "Electronics", "Grocery", "Digital Services", "Luxury Goods"];
 const merchants = ["Northstar Market", "Orbit Travel", "Vertex Electronics", "Hearth & Basket", "Cloudline Media", "Mosaic Atelier"];
 const paymentMethods = ["Card", "Digital wallet", "Bank transfer", "Virtual card"];
@@ -83,7 +87,7 @@ function riskLevel(probability: number): RiskLevel {
   return "LOW";
 }
 
-function buildTransaction(index: number): Transaction {
+function buildTransaction(index: number, epoch?: number): Transaction {
   const hour = Math.floor(seeded(index, 1) * 24);
   const categoryIndex = Math.floor(seeded(index, 2) * categories.length);
   const merchantIndex = categoryIndex % merchants.length;
@@ -112,10 +116,10 @@ function buildTransaction(index: number): Transaction {
   if (failedAttempts >= 2) factors.push("Multiple failed attempts");
   if (unusualHour) factors.push("Unusual transaction hour");
   if (!factors.length) factors.push("Trusted transaction pattern");
-  const timestamp = new Date(Date.now() - (2000 - index) * 218000).toISOString();
+  const timestamp = new Date((epoch ?? Date.now()) - (2000 - index) * 218000).toISOString();
   const location = locations[Math.floor(seeded(index, 13) * locations.length)];
   return {
-    id: `TXN-${String(100000 + index).padStart(6, "0")}`,
+    id: transactionId(index),
     timestamp,
     amount: Number(amount.toFixed(2)),
     merchantCategory: categories[categoryIndex],
@@ -158,6 +162,39 @@ function buildTransaction(index: number): Transaction {
       timeRisk: unusualHour,
       internationalRisk: isInternational ? 1 : 0,
     },
+  };
+}
+
+function transactionId(index: number) {
+  return `TXN-${String(100000 + index).padStart(6, "0")}`;
+}
+
+function initialPipeline(): PipelineState {
+  const cursor = 1885;
+  return { status: "STOPPED", cursor, processed: cursor, lastTransactionId: transactionId(cursor - 1), startedAt: null, speed: 5 };
+}
+
+export function createOperationalFixtures() {
+  const transactions = Array.from({ length: 2000 }, (_, index) => buildTransaction(index, fixtureEpoch));
+
+  const alerts: Alert[] = [
+    { id: "ALT-001", type: "HIGH FRAUD RATE", severity: "CRITICAL", description: "Fraud rate increased from 2.8% to 4.1% in the last 24 hours.", createdAt: new Date(fixtureEpoch - 18 * 60000).toISOString(), status: "OPEN", affectedMetric: "Fraud rate" },
+    { id: "ALT-002", type: "DATA DRIFT", severity: "WARNING", description: "velocity_1h PSI exceeded the configured warning threshold.", createdAt: new Date(fixtureEpoch - 86 * 60000).toISOString(), status: "ACKNOWLEDGED", affectedMetric: "velocity_1h" },
+    { id: "ALT-003", type: "HIGH LATENCY", severity: "WARNING", description: "95th percentile inference latency reached 412 ms.", createdAt: new Date(fixtureEpoch - 145 * 60000).toISOString(), status: "OPEN", affectedMetric: "p95 latency" },
+    { id: "ALT-004", type: "MODEL PERFORMANCE", severity: "INFO", description: "Precision is stable and above the production target.", createdAt: new Date(fixtureEpoch - 310 * 60000).toISOString(), status: "RESOLVED", affectedMetric: "Precision" },
+  ];
+
+  return {
+    transactions,
+    alerts,
+    pipeline: initialPipeline(),
+    settings: { lowThreshold: 0.3, highThreshold: 0.7, latencyThreshold: 500, driftThreshold: 0.25 },
+    audit: [
+      { id: `${operationalSeedVersion}:pipeline-stopped`, timestamp: new Date(fixtureEpoch - 16 * 60000).toISOString(), event: "Pipeline stopped", user: "Ops Console", resource: "pipeline", details: "Stream paused after processing 1,885 transactions" },
+      { id: `${operationalSeedVersion}:alert-acknowledged`, timestamp: new Date(fixtureEpoch - 42 * 60000).toISOString(), event: "Alert acknowledged", user: "Maya Chen", resource: "ALT-002", details: "Data drift review started" },
+      { id: `${operationalSeedVersion}:model-deployed`, timestamp: new Date(fixtureEpoch - 119 * 60000).toISOString(), event: "Model deployed", user: "System", resource: "v1.2.0", details: "Random Forest promoted to production" },
+      { id: `${operationalSeedVersion}:threshold-changed`, timestamp: new Date(fixtureEpoch - 183 * 60000).toISOString(), event: "Threshold changed", user: "Maya Chen", resource: "risk-engine", details: "High risk threshold set to 0.70" },
+    ],
   };
 }
 
