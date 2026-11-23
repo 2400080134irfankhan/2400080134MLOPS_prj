@@ -4,7 +4,7 @@ import XLSX from "xlsx";
 
 type Row = Record<string, unknown>;
 type DatasetName = "01_paysim_style" | "02_credit_card_style" | "03_ieee_cis_style";
-type InputSignals = {
+export type InputSignals = {
   amount: number;
   isNewDevice: boolean;
   isInternational: boolean;
@@ -23,7 +23,7 @@ type FeatureStats = {
   legitCount: Map<string, number>;
 };
 
-type DatasetModel = {
+export type DatasetModel = {
   name: DatasetName;
   version: string;
   features: string[];
@@ -35,10 +35,10 @@ type DatasetModel = {
 };
 
 const root = path.resolve(process.cwd(), "datasets");
-const datasetNames: DatasetName[] = ["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"];
+export const datasetNames = ["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"] as const;
 const metadata = datasetNames.map((name) => JSON.parse(fs.readFileSync(path.join(root, name, "metadata.json"), "utf8")) as { dataset_name: DatasetName; source_style: string; rows: number; features: number; fraud_rate: number; description: string; schema: Array<{ column: string; dtype: string }> });
 
-function loadRows(name: DatasetName, split: "train_80" | "test_20") {
+export function loadRows(name: DatasetName, split: "train_80" | "test_20") {
   const workbook = XLSX.readFile(path.join(root, name, `${split}.xlsx`), { cellDates: false });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   return XLSX.utils.sheet_to_json<Row>(sheet, { defval: null });
@@ -56,7 +56,7 @@ function std(values: number[], average: number) {
   return Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / Math.max(values.length, 1)) || 1;
 }
 
-function trainDataset(name: DatasetName): DatasetModel {
+export function trainDataset(name: DatasetName): DatasetModel {
   const train = loadRows(name, "train_80");
   const test = loadRows(name, "test_20");
   const metadataEntry = metadata.find((entry) => entry.dataset_name === name)!;
@@ -91,7 +91,7 @@ function trainDataset(name: DatasetName): DatasetModel {
   return { name, version: `rf-${name}-20260917`, features: featureNames, fraudRate: metadataEntry.fraud_rate, trainRows: train.length, testRows: test.length, metrics: { precision, recall, f1: precision + recall ? (2 * precision * recall) / (precision + recall) : 0, prAuc: Math.min(0.99, (precision + recall) / 2 + 0.12) }, stats };
 }
 
-function scoreRow(row: Row, model: DatasetModel) {
+export function scoreRow(row: Row, model: DatasetModel) {
   const prior = Math.log((model.fraudRate + 0.01) / (1 - model.fraudRate + 0.01));
   const evidence = model.features.reduce((total, feature) => {
     const value = row[feature];
@@ -125,8 +125,13 @@ export function defaultDataset() {
   return datasetNames[0];
 }
 
-export function predictWithDataset(name: DatasetName, input: InputSignals) {
-  const model = models.get(name) ?? models.get(defaultDataset())!;
+export function packagedModel(name: DatasetName) {
+  const model = models.get(name);
+  if (!model) throw new Error("Unknown dataset");
+  return model;
+}
+
+export function predictWithModel(model: DatasetModel, input: InputSignals) {
   const row = adaptInput(model.name, input);
   const probability = Number(scoreRow(row, model).toFixed(3));
   const factors = [
@@ -139,8 +144,41 @@ export function predictWithDataset(name: DatasetName, input: InputSignals) {
   return { probability, modelVersion: model.version, dataset: model.name, metrics: model.metrics, topRiskFactors: factors.length ? factors : ["No elevated risk signals detected"] };
 }
 
-export function evaluateDatasets() {
-  return listDatasets().map((dataset) => ({ dataset: dataset.name, testRows: dataset.testRows, ...dataset.metrics }));
+// Persist model-recognized measurements and catalog categories only. The scorer
+// still receives the complete original input, including unrecognized values.
+export function scoringFeatures(model: DatasetModel, input: InputSignals["features"]) {
+  const retained: Record<string, number | string> = {};
+  for (const key of model.features) {
+    const stat = model.stats.get(key)!;
+    if (key === "name_orig" || key === "name_dest") continue;
+    const value = input?.[key];
+    if (value == null || value === "") continue;
+    if (stat.numeric && Number.isFinite(Number(value))) retained[key] = Number(value);
+    else if (!stat.numeric && typeof value === "string" && (stat.legitCount.has(value) || stat.fraudCount.has(value))) retained[key] = value;
+  }
+  return retained;
+}
+
+// Step integral of precision against recall (average precision), grouping tied scores.
+export function evaluateModel(model: DatasetModel) {
+  const samples = loadRows(model.name, "test_20").map(row => ({
+    p: scoreRow(row, model), positive: Number(row.is_fraud) === 1,
+  })).sort((a, b) => b.p - a.p);
+  const positives = samples.filter(row => row.positive).length;
+  let hits = 0, averagePrecision = 0, predicted = 0, truePositive = 0;
+  for (let i = 0; i < samples.length;) {
+    const probability = samples[i].p;
+    const previous = hits;
+    do {
+      if (samples[i].positive) hits++;
+      i++;
+    } while (i < samples.length && samples[i].p === probability);
+    if (positives) averagePrecision += (hits - previous) / positives * hits / i;
+    if (probability >= 0.5) { predicted = i; truePositive = hits; }
+  }
+  const precision = predicted ? truePositive / predicted : 0;
+  const recall = positives ? truePositive / positives : 0;
+  return { precision, recall, f1: precision + recall ? 2 * precision * recall / (precision + recall) : 0, prAuc: averagePrecision };
 }
 
 function adaptInput(name: DatasetName, input: InputSignals): Row {

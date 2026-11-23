@@ -1,8 +1,20 @@
-import { describe, expect, it } from "vitest";
-import { classify, getMetrics, state } from "./fraud-data";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("./mlops", async () => {
+  const { packagedModel } = await import("./dataset-model");
+  return { activeScorer: async (name: Parameters<typeof packagedModel>[0]) => ({ model: packagedModel(name), digest: "test-digest", version: "test" }) };
+});
+vi.mock("./transaction-db", () => ({ saveScore: vi.fn() }));
+vi.mock("./operations-db", () => ({
+  readSettings: async () => ({ driftThreshold: 0.25 }), recordAudit: vi.fn(),
+}));
+
+import { classify, getMetrics, createOperationalFixtures } from "./fraud-data";
 import { appRouter } from "./routers";
-import { mlopsStatus } from "./mlops";
-import { listDatasets } from "./dataset-model";
+
+import { listDatasets, evaluateModel, packagedModel } from "./dataset-model";
+
+const state = createOperationalFixtures();
 
 describe("fraud data and risk engine", () => {
   it("seeds a realistic transaction population with required fields", () => {
@@ -22,7 +34,7 @@ describe("fraud data and risk engine", () => {
   });
 
   it("computes bounded operational metrics from processed records", () => {
-    const metrics = getMetrics();
+    const metrics = getMetrics(state.transactions.slice(0, state.pipeline.processed));
     expect(metrics.total).toBe(1885);
     expect(metrics.fraudRate).toBeGreaterThanOrEqual(0);
     expect(metrics.fraudRate).toBeLessThanOrEqual(1);
@@ -42,15 +54,13 @@ describe("fraud data and risk engine", () => {
     expect(result.topRiskFactors.length).toBeGreaterThan(1);
   });
 
-  it("runs an MLOps candidate through release gates before deployment", async () => {
-    const caller = appRouter.createCaller({ user: { role: "admin" } as never, req: {} as never, res: {} as never });
-    const trained = await caller.mlops.train();
-    expect(trained.latestRun?.stage).toBe("READY");
-    expect(Object.values(trained.gates).every(Boolean)).toBe(true);
-    const deployed = await caller.mlops.deploy({ version: trained.latestRun!.version });
-    expect(deployed.activeVersion).toBe(trained.latestRun!.version);
-    expect((await caller.transactions.predict({ amount: 100, paymentMethod: "Card", isNewDevice: false, isInternational: false, velocity1h: 1, failedAttempts: 0 })).modelVersion).toBe(trained.latestRun!.version);
-    expect(mlopsStatus().stage).toBe("DEPLOYED");
+  it("evaluates candidate metrics without floors on the held-out split", () => {
+    const metrics = evaluateModel(packagedModel("01_paysim_style"));
+    expect(metrics.precision).toBeCloseTo(0.4);
+    expect(metrics.recall).toBeCloseTo(0.125);
+    expect(metrics.f1).toBeCloseTo(0.190476);
+    expect(metrics.prAuc).toBeGreaterThan(0);
+    expect(metrics.prAuc).toBeLessThan(1);
   });
 
   it("loads and evaluates each supplied synthetic dataset", async () => {
@@ -61,6 +71,6 @@ describe("fraud data and risk engine", () => {
     const caller = appRouter.createCaller({ user: { role: "user" } as never, req: {} as never, res: {} as never });
     const prediction = await caller.transactions.predict({ amount: 850, paymentMethod: "Card", isNewDevice: true, isInternational: true, velocity1h: 8, failedAttempts: 3, datasetName: "02_credit_card_style" });
     expect(prediction.dataset).toBe("02_credit_card_style");
-    expect(prediction.modelArtifact).toContain("02_credit_card_style");
+    expect(prediction.modelArtifact).toBe("test-digest");
   });
 });

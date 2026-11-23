@@ -12,6 +12,8 @@ vi.hoisted(async () => {
   vi.stubEnv("DEMO_AUTH_ENABLED", "false");
 });
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+vi.mock("./pipeline-db", () => ({ controlPipeline: vi.fn(), pipelineStatus: vi.fn() }));
+vi.mock("./operations-db", () => ({ recordAudit: vi.fn() }));
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createApp } from "./_core/app";
@@ -24,6 +26,8 @@ vi.mock("./db", () => ({
   getUserByOpenId: vi.fn(async (openId: string) => ({ openId, role: openId === "owner" ? "admin" : "user" })),
   upsertUser: vi.fn(),
   checkDatabaseConnection: async () => ({ status: "unconfigured" }),
+}));
+vi.mock("./scan-history", () => ({
   listEmailScans: async () => [],
   listUrlScans: async () => [],
   saveUrlScan: vi.fn(async () => {}),
@@ -46,7 +50,7 @@ describe("shared serverless Express entry point", () => {
   it("serves tRPC JSON and honest unconfigured database status", async () => {
     const response = await fetch(`${base}/api/trpc/health`);
     expect(response.status).toBe(200);
-    expect((await response.json()).result.data.json.database).toBe("unconfigured");
+    expect((await response.json()).result.data.json).toMatchObject({ database: "unconfigured", pipeline: "unknown" });
   });
   it("handles credentialed preflight before tRPC", async () => {
     const response = await fetch(`${base}/api/trpc/auth.me`, {
@@ -105,6 +109,9 @@ describe("shared serverless Express entry point", () => {
       });
       expect(response.status).toBe(expected);
     }
+    const { controlPipeline } = await import("./pipeline-db");
+    expect(controlPipeline).toHaveBeenCalledTimes(1);
+    expect(controlPipeline).toHaveBeenCalledWith(expect.objectContaining({ role: "admin" }), { action: "pause" });
   });
   it("rejects expired, wrong-app, demo and invalid sessions", async () => {
     for (const token of [
@@ -134,8 +141,8 @@ describe("shared serverless Express entry point", () => {
     expect(link.signals[0].label).toBe("Unsupported link scheme");
     expect(email.verdict).toBe("INCONCLUSIVE");
     expect(email.signals[0].label).toBe("Invalid sender address");
-    const db = await import("./db");
-    expect(db.saveUrlScan).toHaveBeenCalledWith(expect.objectContaining({ normalizedUrl: "javascript:alert(1)" }));
-    expect(db.saveEmailScan).toHaveBeenCalledWith(expect.objectContaining({ sender: "invalid" }));
+    const db = await import("./scan-history");
+    expect(db.saveUrlScan).toHaveBeenCalledWith(expect.objectContaining({ normalizedUrl: "javascript:alert(1)" }), expect.any(Object));
+    expect(db.saveEmailScan).toHaveBeenCalledWith(expect.objectContaining({ sender: "invalid" }), expect.any(Object));
   });
 });

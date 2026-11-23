@@ -296,8 +296,9 @@ export function summary(
   };
 }
 
-export function monitoring() {
-  const metrics = getMetrics();
+export function monitoring(currentMetrics?: ReturnType<typeof getMetrics>) {
+  const metrics = currentMetrics ?? getMetrics();
+  const processed = currentMetrics ? currentMetrics.total : state.pipeline.processed;
   const drift = [
     { feature: "amount", baseline: 0.12, current: 0.18, psi: 0.07, status: "Stable" },
     { feature: "velocity_1h", baseline: 0.21, current: 0.38, psi: 0.31, status: "Warning" },
@@ -305,7 +306,7 @@ export function monitoring() {
     { feature: "failed_attempts", baseline: 0.08, current: 0.13, psi: 0.22, status: "Stable" },
     { feature: "amount_deviation", baseline: 0.14, current: 0.26, psi: 0.28, status: "Warning" },
   ];
-  return { metrics, drift, quality: { processed: state.pipeline.processed, valid: state.pipeline.processed - 3, invalid: 3, duplicates: 2, missing: 7 }, predictionDrift: [{ label: "Baseline", low: 78, medium: 16, high: 6 }, { label: "Production", low: Math.round((1 - metrics.fraudRate - 0.12) * 100), medium: 12, high: Math.round(metrics.fraudRate * 100) }], updatedAt: new Date().toISOString() };
+  return { metrics, drift, quality: { processed, valid: processed - 3, invalid: 3, duplicates: 2, missing: 7 }, predictionDrift: [{ label: "Baseline", low: 78, medium: 16, high: 6 }, { label: "Production", low: Math.round((1 - metrics.fraudRate - 0.12) * 100), medium: 12, high: Math.round(metrics.fraudRate * 100) }], updatedAt: new Date().toISOString() };
 }
 
 export function models() {

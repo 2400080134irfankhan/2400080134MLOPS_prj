@@ -1,4 +1,6 @@
 import { expect, it, vi } from "vitest";
+vi.mock("./transaction-db", () => ({ dashboardSummary: vi.fn() }));
+vi.mock("./operations-db", () => ({ activeAlertCount: async () => 3 }));
 import { appRouter } from "./routers";
 import { sdk } from "./_core/sdk";
 import type { TrpcContext } from "./_core/context";

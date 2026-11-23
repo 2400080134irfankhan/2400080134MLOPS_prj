@@ -1,13 +1,17 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { checkDatabaseConnection, listEmailScans, listUrlScans, saveEmailScan, saveUrlScan } from "./db";
+import { checkDatabaseConnection } from "./db";
+import { listEmailScans, listUrlScans, saveEmailScan, saveUrlScan } from "./scan-history";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { addAudit, classify, getMetrics, getTransaction, models, monitoring, state, summary } from "./fraud-data";
-import { activeModelVersion, deployModel, mlopsHealth, mlopsStatus, rollbackModel, trainModel } from "./mlops";
-import { defaultDataset, listDatasets, predictWithDataset } from "./dataset-model";
+import { activeAlertCount, listAlerts, listAudit, readSettings, transitionAlert, updateSettings } from './operations-db';
+import { classify, monitoring, paymentMethods } from "./fraud-data";
+import { dashboardSummary, getTransaction, listTransactions, saveScore, transactionMetrics } from "./transaction-db";
+import { controlPipeline, pipelineStatus } from "./pipeline-db";
+import { activeDatasets, activeScorer, catalog, deployModel, mlopsHealth, mlopsStatus, rollbackModel, trainModel } from "./mlops";
+import { defaultDataset, predictWithModel, scoringFeatures } from "./dataset-model";
 import { analyzeLink } from "./link-detector";
 import { analyzeEmail } from "./email-detector";
 import { demoAuthEnabled } from "./_core/env";
@@ -50,15 +54,19 @@ export const appRouter = router({
       return { success: true } as const;
     }),
   }),
-  health: publicProcedure.query(async () => ({ api: "connected" as const, database: (await checkDatabaseConnection()).status, model: "loaded" as const, pipeline: state.pipeline.status.toLowerCase(), updatedAt: new Date().toISOString() })),
+  health: publicProcedure.query(async () => {
+    const { status: database } = await checkDatabaseConnection();
+    const pipeline = database === "connected" ? await pipelineStatus().then(p => p.status.toLowerCase(), () => "unknown") : "unknown";
+    return { api: "connected" as const, database, model: "loaded" as const, pipeline, updatedAt: new Date().toISOString() };
+  }),
   datasets: router({
-    list: protectedProcedure.query(() => listDatasets()),
+    list: protectedProcedure.query(() => activeDatasets()),
   }),
   linkDetection: router({
     history: protectedProcedure.query(() => listUrlScans()),
-    analyze: protectedProcedure.input(z.object({ url: z.string().trim().min(1).max(2048) })).mutation(async ({ input }) => {
+    analyze: protectedProcedure.input(z.object({ url: z.string().trim().min(1).max(2048) })).mutation(async ({ input, ctx }) => {
       const result = await analyzeLink(input.url);
-      await saveUrlScan(result);
+      await saveUrlScan(result, ctx.user);
       return result;
     }),
   }),
@@ -71,72 +79,78 @@ export const appRouter = router({
       replyTo: z.string().email().max(320).optional(),
       headers: z.string().max(30000).optional(),
       attachments: z.array(z.string().max(255)).max(20).optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const result = await analyzeEmail(input.sender, input.subject, input.content, input);
-      await saveEmailScan(result);
+      await saveEmailScan(result, ctx.user);
       return result;
     }),
   }),
   mlops: router({
     status: protectedProcedure.query(() => mlopsStatus()),
     health: protectedProcedure.query(() => mlopsHealth()),
-    train: adminProcedure.input(z.object({ datasetName: z.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional() }).optional()).mutation(({ input }) => trainModel(input?.datasetName)),
-    deploy: adminProcedure.input(z.object({ version: z.string() })).mutation(({ input }) => deployModel(input.version)),
-    rollback: adminProcedure.mutation(() => rollbackModel()),
+    train: adminProcedure.input(z.object({ datasetName: z.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional() }).optional()).mutation(({ input, ctx }) => trainModel(ctx.user, input?.datasetName)),
+    deploy: adminProcedure.input(z.object({ version: z.string() })).mutation(({ input, ctx }) => deployModel(ctx.user, input.version)),
+    rollback: adminProcedure.mutation(({ ctx }) => rollbackModel(ctx.user)),
   }),
   dashboard: router({
-    summary: protectedProcedure.query(() => summary()),
+    summary: protectedProcedure.query(async () => dashboardSummary(await activeAlertCount())),
   }),
   transactions: router({
-    list: protectedProcedure.input(z.object({ search: z.string().default(""), filter: riskFilter, page: z.number().int().min(1).default(1), pageSize: z.number().int().min(5).max(50).default(12) })).query(({ input }) => {
-      const all = state.transactions.slice(0, state.pipeline.processed).filter((row) => {
-        const search = input.search.toLowerCase();
-        const matchesSearch = !search || [row.id, row.customerId, row.merchantId, row.merchantName].some((value) => value.toLowerCase().includes(search));
-        const matchesFilter = input.filter === "ALL" || (input.filter === "FRAUD" && row.prediction === "FRAUD") || (input.filter === "LEGITIMATE" && row.prediction === "LEGITIMATE") || row.riskLevel === input.filter;
-        return matchesSearch && matchesFilter;
-      }).reverse();
-      const start = (input.page - 1) * input.pageSize;
-      return { rows: all.slice(start, start + input.pageSize), total: all.length, page: input.page, pageSize: input.pageSize };
-    }),
-    get: protectedProcedure.input(z.object({ id: z.string() })).query(({ input }) => getTransaction(input.id) ?? null),
-    predict: protectedProcedure.input(z.object({ amount: z.number().positive(), paymentMethod: z.string(), isNewDevice: z.boolean(), isInternational: z.boolean(), velocity1h: z.number().min(0), failedAttempts: z.number().min(0), datasetName: z.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional(), features: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])).optional() })).mutation(({ input }) => {
-      const result = predictWithDataset(input.datasetName ?? defaultDataset(), input);
+    list: protectedProcedure.input(z.object({ search: z.string().default(""), filter: riskFilter, page: z.number().int().min(1).default(1), pageSize: z.number().int().min(5).max(50).default(12) })).query(({ input }) => listTransactions(input)),
+    get: protectedProcedure.input(z.object({ id: z.string() })).query(({ input }) => getTransaction(input.id)),
+    predict: protectedProcedure.input(z.object({ amount: z.number().positive(), paymentMethod: z.string(), isNewDevice: z.boolean(), isInternational: z.boolean(), velocity1h: z.number().min(0), failedAttempts: z.number().min(0), datasetName: z.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional(), features: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])).optional() })).mutation(async ({ input, ctx }) => {
+      const start = performance.now();
+      const { model, digest, version: modelVersion } = await activeScorer(input.datasetName ?? defaultDataset());
+      const result = predictWithModel(model, input);
       const probability = result.probability;
       const riskLevel = classify(probability);
-      return { probability, riskLevel, prediction: riskLevel === "HIGH" ? "FRAUD" : "LEGITIMATE", modelVersion: activeModelVersion(), dataset: result.dataset, modelArtifact: result.modelVersion, metrics: result.metrics, processingTimeMs: 42, topRiskFactors: result.topRiskFactors };
+      const prediction = riskLevel === "HIGH" ? "FRAUD" as const : "LEGITIMATE" as const;
+      const elapsed = Math.round(performance.now() - start);
+      const { amount, paymentMethod, isNewDevice, isInternational, velocity1h, failedAttempts } = input;
+      await saveScore(ctx.user, {
+        inputs: { amount, paymentMethod: paymentMethods.includes(paymentMethod) ? paymentMethod : null,
+          isNewDevice, isInternational, velocity1h, failedAttempts, features: scoringFeatures(model, input.features) },
+        dataset: result.dataset, modelVersion, artifact: digest, probability, riskLevel, prediction,
+        metrics: result.metrics, topRiskFactors: result.topRiskFactors, processingTimeMs: elapsed,
+      });
+      return { probability, riskLevel, prediction, modelVersion, dataset: result.dataset, modelArtifact: digest, metrics: result.metrics, processingTimeMs: 42, topRiskFactors: result.topRiskFactors };
     }),
   }),
   pipeline: router({
-    status: protectedProcedure.query(() => state.pipeline),
-    start: adminProcedure.input(z.object({ speed: z.number().int().min(1).max(10).default(5) })).mutation(({ input }) => { state.pipeline.status = "RUNNING"; state.pipeline.speed = input.speed; state.pipeline.startedAt = state.pipeline.startedAt ?? new Date().toISOString(); addAudit("Pipeline started", "pipeline", `Transaction stream running at ${input.speed} tx/sec`); return state.pipeline; }),
-    pause: adminProcedure.mutation(() => { state.pipeline.status = "PAUSED"; addAudit("Pipeline paused", "pipeline", `Stream paused at transaction ${state.pipeline.processed}`); return state.pipeline; }),
-    stop: adminProcedure.mutation(() => { state.pipeline.status = "STOPPED"; addAudit("Pipeline stopped", "pipeline", `Stream stopped at transaction ${state.pipeline.processed}`); return state.pipeline; }),
-    step: adminProcedure.mutation(() => { if (state.pipeline.cursor < state.transactions.length) { const next = state.transactions[state.pipeline.cursor]; state.pipeline.cursor += 1; state.pipeline.processed = state.pipeline.cursor; state.pipeline.lastTransactionId = next?.id ?? null; } return state.pipeline; }),
+    status: protectedProcedure.query(() => pipelineStatus()),
+    start: adminProcedure.input(z.object({ speed: z.number().int().min(1).max(10).default(5) }))
+      .mutation(({ ctx, input }) => controlPipeline(ctx.user, { action: "start", speed: input.speed })),
+    pause: adminProcedure.mutation(({ ctx }) => controlPipeline(ctx.user, { action: "pause" })),
+    stop: adminProcedure.mutation(({ ctx }) => controlPipeline(ctx.user, { action: "stop" })),
+    step: adminProcedure.mutation(({ ctx }) => controlPipeline(ctx.user, { action: "step" })),
   }),
   monitoring: router({
-    overview: protectedProcedure.query(() => monitoring()),
-    drift: protectedProcedure.query(() => monitoring().drift),
-    performance: protectedProcedure.query(() => monitoring().metrics),
+    overview: protectedProcedure.query(async () => monitoring(await transactionMetrics())),
+    drift: protectedProcedure.query(async () => monitoring(await transactionMetrics()).drift),
+    performance: protectedProcedure.query(async () => monitoring(await transactionMetrics()).metrics),
   }),
   models: router({
-    list: protectedProcedure.query(() => models()),
-    get: protectedProcedure.input(z.object({ version: z.string() })).query(({ input }) => models().find((model) => model.version === input.version) ?? null),
-    retrain: adminProcedure.input(z.object({ datasetName: z.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional() }).optional()).mutation(({ input }) => trainModel(input?.datasetName)),
-    promote: adminProcedure.input(z.object({ version: z.string() })).mutation(({ input }) => deployModel(input.version)),
+    list: protectedProcedure.query(() => catalog()),
+    get: protectedProcedure.input(z.object({ version: z.string() })).query(async ({ input }) => (await catalog()).find((model) => model.version === input.version) ?? null),
+    retrain: adminProcedure.input(z.object({ datasetName: z.enum(["01_paysim_style", "02_credit_card_style", "03_ieee_cis_style"]).optional() }).optional()).mutation(({ input, ctx }) => trainModel(ctx.user, input?.datasetName)),
+    promote: adminProcedure.input(z.object({ version: z.string() })).mutation(({ input, ctx }) => deployModel(ctx.user, input.version)),
   }),
   alerts: router({
-    list: protectedProcedure.input(z.object({ status: z.enum(["ALL", "OPEN", "ACKNOWLEDGED", "RESOLVED"]).default("ALL") })).query(({ input }) => input.status === "ALL" ? state.alerts : state.alerts.filter((alert) => alert.status === input.status)),
-    acknowledge: protectedProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => { const alert = state.alerts.find((item) => item.id === input.id); if (alert) alert.status = "ACKNOWLEDGED"; addAudit("Alert acknowledged", input.id, "Alert moved to acknowledged state"); return alert ?? null; }),
-    resolve: protectedProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => { const alert = state.alerts.find((item) => item.id === input.id); if (alert) alert.status = "RESOLVED"; addAudit("Alert resolved", input.id, "Alert marked resolved by operations"); return alert ?? null; }),
+    list: protectedProcedure.input(z.object({ status: z.enum(["ALL", "OPEN", "ACKNOWLEDGED", "RESOLVED"]).default("ALL") }))
+      .query(({ input }) => listAlerts(input.status)),
+    acknowledge: protectedProcedure.input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => transitionAlert(ctx.user, input.id, "ACKNOWLEDGED")),
+    resolve: protectedProcedure.input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => transitionAlert(ctx.user, input.id, "RESOLVED")),
   }),
   experiments: router({ list: protectedProcedure.query(() => [
     { id: "EXP-024", model: "Random Forest", dataset: "sentinel-synthetic-2k", featureSet: "risk-v4", timestamp: "2026-09-18T11:20:00.000Z", status: "Registered", metrics: "F1 0.87 · PR-AUC 0.88", params: "240 trees · balanced weights" },
     { id: "EXP-023", model: "Logistic Regression", dataset: "sentinel-synthetic-2k", featureSet: "risk-v4", timestamp: "2026-09-10T14:05:00.000Z", status: "Reference", metrics: "F1 0.76 · PR-AUC 0.77", params: "C=1.0 · balanced weights" },
     { id: "EXP-021", model: "Random Forest", dataset: "sentinel-synthetic-2k", featureSet: "risk-v3", timestamp: "2026-09-04T08:40:00.000Z", status: "Archived", metrics: "F1 0.84 · PR-AUC 0.84", params: "160 trees · balanced weights" },
   ]) }),
-  audit: router({ list: protectedProcedure.query(() => state.audit) }),
-  settings: router({ get: protectedProcedure.query(() => state.settings), update: adminProcedure.input(z.object({ lowThreshold: z.number().min(0).max(1), highThreshold: z.number().min(0).max(1), latencyThreshold: z.number().min(50).max(5000), driftThreshold: z.number().min(0).max(1) })).mutation(({ input }) => { state.settings = input; addAudit("Threshold changed", "risk-engine", `High risk ${input.highThreshold.toFixed(2)} · latency ${input.latencyThreshold} ms`); return state.settings; }) }),
-  metrics: protectedProcedure.query(() => getMetrics()),
+  audit: router({ list: protectedProcedure.query(() => listAudit()) }),
+  settings: router({ get: protectedProcedure.query(() => readSettings()), update: adminProcedure.input(z.object({ lowThreshold: z.number().min(0).max(1), highThreshold: z.number().min(0).max(1), latencyThreshold: z.number().min(50).max(5000), driftThreshold: z.number().min(0).max(1) })).mutation(({ ctx, input }) => updateSettings(ctx.user, input)) }),
+  metrics: protectedProcedure.query(() => transactionMetrics()),
 });
 
 export type AppRouter = typeof appRouter;

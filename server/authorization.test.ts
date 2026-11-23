@@ -1,7 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
+vi.mock("./mlops", async () => {
+  const { packagedModel } = await import("./dataset-model");
+  return { activeDatasets: async () => [], catalog: async () => [], mlopsStatus: vi.fn(), mlopsHealth: vi.fn(), deployModel: vi.fn(), rollbackModel: vi.fn(),
+    trainModel: async () => ({ latestRun: { version: "test-candidate" } }),
+    activeScorer: async (name: Parameters<typeof packagedModel>[0]) => ({ model: packagedModel(name), digest: "test", version: "test" }) };
+});
+vi.mock("./pipeline-db", () => ({ pipelineStatus: vi.fn(), controlPipeline: vi.fn() }));
+
+vi.mock("./scan-history", () => ({
+  listUrlScans: vi.fn(), listEmailScans: vi.fn(), saveUrlScan: vi.fn(), saveEmailScan: vi.fn(),
+}));
+
+vi.mock("./transaction-db", () => ({ saveScore: vi.fn(), listTransactions: vi.fn(), getTransaction: vi.fn(), dashboardSummary: vi.fn(), transactionMetrics: async () => ({ total: 1885, fraudRate: 0.1 }) }));
+vi.mock("./operations-db", () => ({
+  activeAlertCount: vi.fn(async () => 3), listAudit: vi.fn(async () => []),
+  listAlerts: vi.fn(async () => []), transitionAlert: vi.fn(), updateSettings: vi.fn(),
+  readSettings: vi.fn(async () => ({ driftThreshold: 0.25 })), recordAudit: vi.fn(),
+}));
+
 import type { TrpcContext } from "./_core/context";
 import { appRouter } from "./routers";
-import { state } from "./fraud-data";
+import { createOperationalFixtures } from "./fraud-data";
+
+const fixtures = createOperationalFixtures();
 
 vi.mock("./_core/notification", () => ({ notifyOwner: async () => true }));
 
@@ -18,7 +39,7 @@ type Action = (client: ReturnType<typeof caller>) => Promise<unknown>;
 const analyst: Record<string, Action> = {
   "dashboard.summary": c => c.dashboard.summary(),
   "transactions.list": c => c.transactions.list({}),
-  "transactions.get": c => c.transactions.get({ id: state.transactions[0].id }),
+  "transactions.get": c => c.transactions.get({ id: fixtures.transactions[0].id }),
   "transactions.predict": c => c.transactions.predict({ amount: 100, paymentMethod: "Card",
     isNewDevice: false, isInternational: false, velocity1h: 1, failedAttempts: 0 }),
   "datasets.list": c => c.datasets.list(),
@@ -35,8 +56,8 @@ const analyst: Record<string, Action> = {
   "models.list": c => c.models.list(),
   "models.get": c => c.models.get({ version: "v1.2.0" }),
   "alerts.list": c => c.alerts.list({}),
-  "alerts.acknowledge": c => c.alerts.acknowledge({ id: state.alerts[0].id }),
-  "alerts.resolve": c => c.alerts.resolve({ id: state.alerts[0].id }),
+  "alerts.acknowledge": c => c.alerts.acknowledge({ id: fixtures.alerts[0].id }),
+  "alerts.resolve": c => c.alerts.resolve({ id: fixtures.alerts[0].id }),
   "experiments.list": c => c.experiments.list(),
   "audit.list": c => c.audit.list(),
   "settings.get": c => c.settings.get(),
@@ -52,7 +73,7 @@ const administrator: Record<string, Action> = {
   "mlops.rollback": c => c.mlops.rollback(),
   "models.retrain": c => c.models.retrain(),
   "models.promote": async c => c.models.promote({ version: (await caller("admin").models.retrain()).latestRun!.version }),
-  "settings.update": c => c.settings.update({ ...state.settings }),
+  "settings.update": c => c.settings.update({ ...fixtures.settings }),
   "system.notifyOwner": c => c.system.notifyOwner({ title: "Test", content: "Test" }),
 };
 
